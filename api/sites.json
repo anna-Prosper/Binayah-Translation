@@ -1,0 +1,16 @@
+[
+  {
+    "id": "default",
+    "name": "Default Site",
+    "url": "https://binayah-temp.fixed-staging.co.uk",
+    "api_key": "dfba88421bd8980b6b28be7a6dfef9af19f9cad5027087206c5b05ddec5eba6c",
+    "registered_at": "2026-06-01T07:21:06.776Z"
+  },
+  {
+    "id": "site_1780302918405",
+    "name": "Binayah Properties",
+    "url": "https://binayahcom.fixed-staging.co.uk",
+    "api_key": "9d1d8ef7aa255829f16aaff13067f5a8f463837663c8f7fbe35696c49a3a4ff6",
+    "registered_at": "2026-06-01T08:35:18.405Z"
+  }
+]

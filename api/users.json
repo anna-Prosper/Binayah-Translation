@@ -1,0 +1,50 @@
+[
+  {
+    "id": "superadmin",
+    "username": "admin",
+    "password_hash": "$2b$10$nX/pVJ6y5Pf.qFx9lNNy4eSv.b17nVNqflWQ2kKLHX1xgnc4GF3t2",
+    "role": "superadmin",
+    "created_at": "2026-06-04T12:03:10.515Z",
+    "last_login": "2026-06-08T05:36:38.711Z",
+    "permissions": {
+      "languages": [],
+      "post_types": [],
+      "models": [],
+      "hide_modules": [],
+      "api": "all"
+    }
+  },
+  {
+    "id": "user_1780643542610",
+    "username": "Test",
+    "password_hash": "$2b$10$McI6GgGp2F2uWhJ2oINyYe37QBYI/I4be4Z9JIYANQf1y5UnfrZ.u",
+    "role": "user",
+    "created_at": "2026-06-05T07:12:22.723Z",
+    "last_login": "2026-06-08T09:05:28.306Z",
+    "permissions": {
+      "hide_modules": [
+        "settings",
+        "languages"
+      ],
+      "languages": [
+        "ar",
+        "fr",
+        "ru"
+      ],
+      "post_types": [
+        "page",
+        "floor_plans"
+      ],
+      "api": "both",
+      "models": [],
+      "deepseek_models": [
+        "deepseek-reasoner"
+      ],
+      "openrouter_models": [
+        "ai21/jamba-large-1.7",
+        "openai/gpt-5",
+        "aion-labs/aion-1.0"
+      ]
+    }
+  }
+]

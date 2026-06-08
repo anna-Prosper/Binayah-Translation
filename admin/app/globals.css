@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: #F4F6F8;
+  color: #111111;
+  margin: 0;
+  font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@keyframes bt-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.bt-page { animation: bt-fade 0.18s ease both; }
+
+.bt-nav-link:hover {
+  background: rgba(255,255,255,0.1) !important;
+  color: rgba(255,255,255,0.9) !important;
+}
+
+.bt-row:hover { background: #f8fafc !important; }
+
+.bt-btn-primary:hover  { opacity: 0.85 !important; }
+.bt-btn-secondary:hover { background: #f1f5f9 !important; }
+.bt-btn-danger:hover   { background: rgba(239,68,68,0.08) !important; color: #dc2626 !important; }
+
+.bt-input:focus,
+.bt-select:focus,
+.bt-input-focus:focus {
+  border-color: #004D42 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(0,77,66,0.1) !important;
+}
+
+.bt-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.45);
+  backdrop-filter: blur(3px);
+  z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  animation: bt-fade 0.15s ease;
+}
+.bt-modal {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 28px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+  animation: bt-fade 0.15s ease;
+}
+
+.bt-card-hover:hover {
+  box-shadow: 0 4px 14px rgba(0,0,0,0.1) !important;
+  transform: translateY(-1px);
+  transition: all 0.15s ease;
+}
+
+/* Consistent table header */
+.bt-th {
+  text-align: left;
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #111111;
+  text-transform: capitalize;
+  letter-spacing: 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+/* Capitalize labels everywhere */
+.bt-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #333333;
+  text-transform: capitalize;
+  margin-bottom: 6px;
+  display: block;
+}
+
+/* Dropdown arrow spacing */
+select {
+  padding-right: 32px !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2710%27 height=%2710%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27%23666%27 stroke-width=%272%27 stroke-linecap=%27round%27%3E%3Cpolyline points=%276 9 12 15 18 9%27/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 10px center !important;
+  background-size: 14px !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+}
+
+
+/* Permission-based visibility — no JS flash */
+
+/* ── Role-based nav hiding — server-rendered, zero flash ── */
+/* Admin-only items hidden for regular users */
+html[data-role="user"] .admin-only-nav { display: none !important; }
+
+/* Language nav: hidden if 'languages' is in data-hidden */
+/* This is handled by JS but won't flash because admin-only items are hidden by default */
+/* Languages hidden when in hide_modules */
+html[data-role="user"][data-hidden*="languages"] .lang-nav { display: none !important; }
+html[data-role="user"][data-hidden*="reports"]   .module-reports-nav   { display: none !important; }
+html[data-role="user"][data-hidden*="progress"]  .module-progress-nav  { display: none !important; }
+html[data-role="user"][data-hidden*="translate"] .module-translate-nav { display: none !important; }
+html[data-role="user"][data-hidden*="pages"]     .module-pages-nav     { display: none !important; }
+
+/* Prevent any blink: during initial paint before JS, hide nothing (trust middleware) */
+/* All page-level access is handled by Next.js middleware (server-side, zero flash) */

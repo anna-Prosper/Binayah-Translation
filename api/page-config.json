@@ -1,0 +1,14 @@
+{
+  "18270": {
+    "api": "deepseek",
+    "model": "deepseek-chat"
+  },
+  "177997": {
+    "api": "deepseek",
+    "model": "deepseek-reasoner"
+  },
+  "382692": {
+    "api": "deepseek",
+    "model": "deepseek-chat"
+  }
+}

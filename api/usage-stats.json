@@ -1,0 +1,364 @@
+{
+  "total": {
+    "calls": 58,
+    "fields": 16106
+  },
+  "by_api": {
+    "deepseek": {
+      "calls": 35,
+      "fields": 8489
+    },
+    "openrouter": {
+      "calls": 23,
+      "fields": 7617
+    }
+  },
+  "by_language": {
+    "ar": {
+      "calls": 24,
+      "fields": 7085
+    },
+    "hb": {
+      "calls": 3,
+      "fields": 567
+    },
+    "fr": {
+      "calls": 5,
+      "fields": 585
+    },
+    "ru": {
+      "calls": 13,
+      "fields": 4029
+    },
+    "zh": {
+      "calls": 2,
+      "fields": 551
+    },
+    "de": {
+      "calls": 2,
+      "fields": 551
+    },
+    "es": {
+      "calls": 2,
+      "fields": 551
+    },
+    "it": {
+      "calls": 2,
+      "fields": 551
+    },
+    "pt": {
+      "calls": 2,
+      "fields": 551
+    },
+    "fa": {
+      "calls": 2,
+      "fields": 551
+    },
+    "ja": {
+      "calls": 1,
+      "fields": 534
+    }
+  },
+  "recent": [
+    {
+      "date": "2026-06-04",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 488
+    },
+    {
+      "date": "2026-06-04",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 487
+    },
+    {
+      "date": "2026-06-04",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 488
+    },
+    {
+      "date": "2026-06-03",
+      "lang": "ru",
+      "api": "deepseek",
+      "fields": 7
+    },
+    {
+      "date": "2026-06-03",
+      "lang": "ru",
+      "api": "deepseek",
+      "fields": 0
+    },
+    {
+      "date": "2026-06-03",
+      "lang": "ru",
+      "api": "deepseek",
+      "fields": 488
+    },
+    {
+      "date": "2026-06-03",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 488
+    },
+    {
+      "date": "2026-06-03",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 89
+    },
+    {
+      "date": "2026-06-03",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 594
+    },
+    {
+      "date": "2026-06-03",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 579
+    },
+    {
+      "date": "2026-06-01",
+      "lang": "ar",
+      "api": "openrouter",
+      "fields": 752
+    },
+    {
+      "date": "2026-06-01",
+      "lang": "ar",
+      "api": "openrouter",
+      "fields": 479
+    },
+    {
+      "date": "2026-06-01",
+      "lang": "ar",
+      "api": "openrouter",
+      "fields": 479
+    },
+    {
+      "date": "2026-05-29",
+      "lang": "ar",
+      "api": "openrouter",
+      "fields": 130
+    },
+    {
+      "date": "2026-05-29",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 0
+    },
+    {
+      "date": "2026-05-29",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 780
+    },
+    {
+      "date": "2026-05-27",
+      "lang": "ar",
+      "api": "openrouter",
+      "fields": 573
+    },
+    {
+      "date": "2026-05-27",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 573
+    },
+    {
+      "date": "2026-05-25",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 573
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "ja",
+      "api": "openrouter",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "hb",
+      "api": "deepseek",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "fa",
+      "api": "deepseek",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "pt",
+      "api": "deepseek",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "it",
+      "api": "deepseek",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "es",
+      "api": "deepseek",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "de",
+      "api": "deepseek",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "zh",
+      "api": "openrouter",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "fr",
+      "api": "openrouter",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 534
+    },
+    {
+      "date": "2026-05-22",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 566
+    },
+    {
+      "date": "2026-05-19",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 7
+    },
+    {
+      "date": "2026-05-19",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 25
+    },
+    {
+      "date": "2026-05-19",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 16
+    },
+    {
+      "date": "2026-05-19",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 16
+    },
+    {
+      "date": "2026-05-19",
+      "lang": "fr",
+      "api": "openrouter",
+      "fields": 17
+    },
+    {
+      "date": "2026-05-19",
+      "lang": "fr",
+      "api": "openrouter",
+      "fields": 16
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "hb",
+      "api": "deepseek",
+      "fields": 17
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "fa",
+      "api": "deepseek",
+      "fields": 17
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "pt",
+      "api": "deepseek",
+      "fields": 17
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "it",
+      "api": "deepseek",
+      "fields": 17
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "es",
+      "api": "deepseek",
+      "fields": 17
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "de",
+      "api": "deepseek",
+      "fields": 17
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "zh",
+      "api": "openrouter",
+      "fields": 17
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 17
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "fr",
+      "api": "openrouter",
+      "fields": 11
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "ar",
+      "api": "deepseek",
+      "fields": 12
+    },
+    {
+      "date": "2026-05-18",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 34
+    }
+  ]
+}
