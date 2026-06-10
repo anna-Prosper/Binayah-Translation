@@ -59,6 +59,7 @@ export default function PagesPage() {
   const [bulkRunning, setBulkRunning]   = useState(false);
   const [alert, setAlert]               = useState<{ text: string; ok: boolean } | null>(null);
   const [cfgModal, setCfgModal]         = useState<CfgModal | null>(null);
+  const [urlModal,  setUrlModal]         = useState<Page | null>(null);
   const [cfgSaving, setCfgSaving]       = useState(false);
   const [trModal, setTrModal]           = useState<TranslateModal | null>(null);
   const filterRef = useRef<HTMLDivElement>(null);
@@ -82,22 +83,21 @@ export default function PagesPage() {
   const fetchPages = useCallback(async () => {
     setLoading(true); setSelected(new Set());
     try {
-      // Get effective types: intersection of user selection + allowed types
       const _allowed = getAllowedPostTypes();
-      const _effective = _allowed.length
-        ? (activeTypes.length ? activeTypes.filter(t => _allowed.includes(t)) : _allowed)
-        : activeTypes;
-      if (_effective.length > 1) {
-        const results = await Promise.all(
-          _effective.map(t => {
-            const params = new URLSearchParams({
-              page: '1', per_page: '50',
-              ...(search ? { search } : {}),
-              post_type: t,
-            });
-            return fetch(`/api/pages?${params}`).then(r => r.json());
-          })
-        );
+
+      if (search) {
+        // ── SEARCH MODE: always search across ALL allowed post types ──
+        let results: any[];
+        if (_allowed.length === 0) {
+          // Superadmin: single call with post_type=all (WP handles it)
+          const json = await fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '100', search, post_type: 'all' })}`).then(r => r.json());
+          results = [json];
+        } else {
+          // User: parallel calls per assigned type
+          results = await Promise.all(
+            _allowed.map(t => fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '50', search, post_type: t })}`).then(r => r.json()))
+          );
+        }
         const merged: Page[] = [];
         const seen = new Set<number>();
         for (const r of results) {
@@ -105,24 +105,41 @@ export default function PagesPage() {
             if (!seen.has(p.id)) { seen.add(p.id); merged.push(p); }
           }
         }
-        merged.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+        // Sort by relevance score (best match first)
+        const q = search.toLowerCase();
+        merged.sort((a, b) => relevanceScore(b, q) - relevanceScore(a, q));
         setPages(merged);
         setTotalPages(1);
-        setTotal(results.reduce((s, r) => s + (r.total || 0), 0));
+        setTotal(merged.length);
       } else {
-        // ALWAYS enforce allowed post types - no bypass possible
-        const _apt = getAllowedPostTypes();
-        const _eff = _apt.length
-          ? (activeTypes.length ? activeTypes.filter((t: string) => _apt.includes(t)) : _apt)
-          : (activeTypes.length === 1 ? [activeTypes[0]] : []);
-        const _po: Record<string,string> = { page: String(page), per_page: String(PER_PAGE) };
-        if (search) _po.search = search;
-        if (_eff.length === 1) _po.post_type = _eff[0];
-        const params = new URLSearchParams(_po);
-        const json = await fetch(`/api/pages?${params}`).then(r => r.json());
-        setPages(json.data || []);
-        setTotalPages(json.total_pages || 1);
-        setTotal(json.total || 0);
+        // ── BROWSE MODE: use active type filters with pagination ──
+        const _effective = _allowed.length
+          ? (activeTypes.length ? activeTypes.filter(t => _allowed.includes(t)) : _allowed)
+          : activeTypes;
+        if (_effective.length > 1) {
+          const results = await Promise.all(
+            _effective.map(t => fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '50', post_type: t })}`).then(r => r.json()))
+          );
+          const merged: Page[] = [];
+          const seen = new Set<number>();
+          for (const r of results) {
+            for (const p of (r.data || [])) {
+              if (!seen.has(p.id)) { seen.add(p.id); merged.push(p); }
+            }
+          }
+          merged.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+          setPages(merged); setTotalPages(1);
+          setTotal(results.reduce((s, r) => s + (r.total || 0), 0));
+        } else {
+          const _apt = getAllowedPostTypes();
+          const _eff = _apt.length
+            ? (activeTypes.length ? activeTypes.filter((t: string) => _apt.includes(t)) : _apt)
+            : (activeTypes.length === 1 ? [activeTypes[0]] : []);
+          const _po: Record<string,string> = { page: String(page), per_page: String(PER_PAGE) };
+          if (_eff.length === 1) _po.post_type = _eff[0];
+          const json = await fetch(`/api/pages?${new URLSearchParams(_po)}`).then(r => r.json());
+          setPages(json.data || []); setTotalPages(json.total_pages || 1); setTotal(json.total || 0);
+        }
       }
     } catch { showAlert('Error loading pages', false); }
     setLoading(false);
@@ -207,6 +224,25 @@ export default function PagesPage() {
   }
 
   function getLang(code: string) { return languages.find(l => l.code === code); }
+  function getTranslatedUrl(pageUrl: string, langCode: string): string {
+    try {
+      const u = new URL(pageUrl);
+      const path = u.pathname.replace(/\/+$/, '');
+      return `${u.origin}/${langCode}${path}/`;
+    } catch { return ''; }
+  }
+  function relevanceScore(p: Page, q: string): number {
+    const t = (p.title || '').toLowerCase();
+    const s = (p.slug  || '').toLowerCase();
+    const u = (p.url   || '').toLowerCase();
+    if (t === q)            return 100;
+    if (t.startsWith(q))    return 90;
+    if (t.includes(q))      return 80;
+    if (s === q)            return 70;
+    if (s.startsWith(q))    return 60;
+    if (s.includes(q) || u.includes(q)) return 50;
+    return 10;
+  }
 
   return (
     <Shell>
@@ -219,11 +255,16 @@ export default function PagesPage() {
       <div style={{ ...D.card, marginBottom: 14 }}>
         <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input className="bt-input-focus" style={{ ...D.input, maxWidth: 300 }}
-            placeholder="Search pages..." value={searchInput} onChange={e => setSearchInput(e.target.value)} />
+            placeholder="Search by name or URL..." value={searchInput} onChange={e => setSearchInput(e.target.value)} />
           <button type="submit" className="bt-btn-secondary" style={D.btnSecondary}>Search</button>
           {search && (
             <button type="button" className="bt-btn-secondary" style={D.btnSecondary}
               onClick={() => { setSearchInput(''); setSearch(''); setPage(1); }}>Clear</button>
+          )}
+          {search && (
+            <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 99, background: 'rgba(0,77,66,0.08)', color: D.brand, fontWeight: 600, border: `1px solid rgba(0,77,66,0.2)` }}>
+              🔍 Searching across all types · {total} result{total !== 1 ? 's' : ''}
+            </span>
           )}
           <div ref={filterRef} style={{ position: 'relative' }}>
             <button type="button" onClick={openFilter} style={{
@@ -383,6 +424,11 @@ export default function PagesPage() {
                           style={{ ...D.btnPrimary, fontSize: 12, padding: '5px 12px' }}>Translate</button>
                         <button onClick={() => openCfgModal(p)}
                           style={{ ...D.btnSecondary, fontSize: 12, padding: '5px 12px' }}>AI Config</button>
+                        <button onClick={() => setUrlModal(p)}
+                          style={{ ...D.btnSecondary, fontSize: 12, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <svg width={12} height={12} viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth={2} strokeLinecap='round'><circle cx='12' cy='12' r='10'/><line x1='2' y1='12' x2='22' y2='12'/><path d='M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z'/></svg>
+                          URLs
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -564,6 +610,69 @@ export default function PagesPage() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+      {urlModal && (
+        <div className='bt-overlay' onClick={e => { if (e.target === e.currentTarget) setUrlModal(null); }}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}>
+          <div style={{ background: '#fff', borderRadius: 12, padding: '28px 32px', width: '100%', maxWidth: 620,
+            maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.18)', position: 'relative' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: D.text1 }}>Translation URLs</h2>
+                <p style={{ margin: '4px 0 0', fontSize: 12, color: D.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 460 }}>{urlModal.title}</p>
+              </div>
+              <button onClick={() => setUrlModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: D.text3, fontSize: 20, lineHeight: 1, padding: 0, marginLeft: 12 }}>✕</button>
+            </div>
+            {/* English (original) */}
+            <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600, color: D.text3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Original</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#f8fafc',
+              border: `1px solid ${D.border}`, borderRadius: 8, marginBottom: 16 }}>
+              <span style={{ fontSize: 18 }}>🇬🇧</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: D.text1, marginBottom: 2 }}>English</div>
+                <div style={{ fontSize: 11, color: D.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{urlModal.url}</div>
+              </div>
+              <a href={urlModal.url} target='_blank' rel='noopener noreferrer'
+                style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 6,
+                  background: D.brand, color: '#fff', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <svg width={10} height={10} viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth={2.5}><path d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/><polyline points='15 3 21 3 21 9'/><line x1='10' y1='14' x2='21' y2='3'/></svg>
+                Open
+              </a>
+            </div>
+            {/* Translated languages */}
+            <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600, color: D.text3, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Translations ({urlModal.translated_languages?.length || 0})</div>
+            {(!urlModal.translated_languages || urlModal.translated_languages.length === 0) && (
+              <div style={{ padding: '16px', textAlign: 'center', color: D.text3, fontSize: 13, background: '#f8fafc', borderRadius: 8, border: `1px solid ${D.border}` }}>No translations yet for this page.</div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(urlModal.translated_languages || []).map(code => {
+                const li = getLang(code);
+                const tUrl = getTranslatedUrl(urlModal.url, code);
+                return (
+                  <div key={code} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+                    border: `1px solid ${D.border}`, borderRadius: 8, background: '#fff', transition: 'background 0.1s' }}>
+                    <span style={{ fontSize: 18, flexShrink: 0 }}>{li?.flag ? <FlagImg flag={li.flag} size={20} /> : '🌐'}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: D.text1, marginBottom: 2 }}>{li?.name || code.toUpperCase()}</div>
+                      <div style={{ fontSize: 11, color: D.text3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tUrl}</div>
+                    </div>
+                    <a href={tUrl} target='_blank' rel='noopener noreferrer'
+                      style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 6,
+                        background: D.brand, color: '#fff', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <svg width={10} height={10} viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth={2.5}><path d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6'/><polyline points='15 3 21 3 21 9'/><line x1='10' y1='14' x2='21' y2='3'/></svg>
+                      Open
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Footer */}
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${D.border}`, display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setUrlModal(null)} style={{ ...D.btnSecondary, fontSize: 13 }}>Close</button>
+            </div>
           </div>
         </div>
       )}

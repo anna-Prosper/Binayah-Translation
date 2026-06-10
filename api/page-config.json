@@ -7,6 +7,10 @@
     "api": "deepseek",
     "model": "deepseek-reasoner"
   },
+  "249435": {
+    "api": "openrouter",
+    "model": "openai/gpt-5"
+  },
   "382692": {
     "api": "deepseek",
     "model": "deepseek-chat"

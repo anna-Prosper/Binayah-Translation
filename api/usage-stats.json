@@ -1,6 +1,6 @@
 {
   "total": {
-    "calls": 58,
+    "calls": 60,
     "fields": 16106
   },
   "by_api": {
@@ -9,7 +9,7 @@
       "fields": 8489
     },
     "openrouter": {
-      "calls": 23,
+      "calls": 25,
       "fields": 7617
     }
   },
@@ -27,7 +27,7 @@
       "fields": 585
     },
     "ru": {
-      "calls": 13,
+      "calls": 15,
       "fields": 4029
     },
     "zh": {
@@ -60,6 +60,18 @@
     }
   },
   "recent": [
+    {
+      "date": "2026-06-09",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 0
+    },
+    {
+      "date": "2026-06-08",
+      "lang": "ru",
+      "api": "openrouter",
+      "fields": 0
+    },
     {
       "date": "2026-06-04",
       "lang": "ar",
@@ -347,18 +359,6 @@
       "lang": "fr",
       "api": "openrouter",
       "fields": 11
-    },
-    {
-      "date": "2026-05-18",
-      "lang": "ar",
-      "api": "deepseek",
-      "fields": 12
-    },
-    {
-      "date": "2026-05-18",
-      "lang": "ru",
-      "api": "openrouter",
-      "fields": 34
     }
   ]
 }

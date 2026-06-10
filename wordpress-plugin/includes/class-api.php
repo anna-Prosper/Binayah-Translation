@@ -146,9 +146,57 @@ class BT_API {
             'orderby'        => 'post_type',
             'order'          => 'ASC',
         );
-        if ( ! empty( $search ) ) $args['s'] = $search;
+        // ── Execute query: title + slug (URL) search support ───────────────
+        if ( ! empty( $search ) ) {
+            // 1. Title matches via WP native search
+            $title_args               = array_merge( $args, array( 's' => $search, 'fields' => 'ids', 'posts_per_page' => -1, 'offset' => 0 ) );
+            $title_ids                = array_map( 'intval', get_posts( $title_args ) );
 
-        $posts = get_posts( $args );
+            // 2. Slug / URL matches via direct SQL
+            $like              = '%' . $wpdb->esc_like( $search ) . '%';
+            $type_placeholders = implode( ',', array_fill( 0, count( $type_list ), '%s' ) );
+            $slug_ids          = array_map( 'intval', (array) $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ($type_placeholders) AND post_status = 'publish' AND post_name LIKE %s",
+                    array_merge( $type_list, array( $like ) )
+                )
+            ) );
+
+            // 3. Merge: title matches first, then slug-only matches (preserves relevance order)
+            $slug_only = array_values( array_diff( $slug_ids, $title_ids ) );
+            $all_ids   = array_values( array_unique( array_merge( $title_ids, $slug_only ) ) );
+
+            $total       = count( $all_ids );
+            $total_pages = max( 1, (int) ceil( $total / $per_page ) );
+            $paged_ids   = array_slice( $all_ids, $offset, $per_page );
+
+            if ( empty( $paged_ids ) ) {
+                return rest_ensure_response( array(
+                    'page' => $page, 'per_page' => $per_page,
+                    'total' => 0, 'total_pages' => 0,
+                    'post_type' => $post_type, 'data' => array(),
+                ) );
+            }
+
+            $posts = get_posts( array(
+                'post_type'      => $type_list,
+                'post_status'    => 'publish',
+                'post__in'       => $paged_ids,
+                'orderby'        => 'post__in',
+                'posts_per_page' => $per_page,
+                'no_found_rows'  => true,
+            ) );
+        } else {
+            $posts = get_posts( $args );
+
+            $count_args                    = $args;
+            $count_args['fields']          = 'ids';
+            unset( $count_args['posts_per_page'], $count_args['offset'] );
+            $count_args['posts_per_page']  = -1;
+            $total                         = count( get_posts( $count_args ) );
+            $total_pages                   = (int) ceil( $total / $per_page );
+        }
+
         $table = BT_Database::table();
         $data  = array();
 
@@ -170,13 +218,6 @@ class BT_API {
                                           : ( count( $translated_languages ) > 0 ? 'partial' : 'not_started' ),
             );
         }
-
-        $count_args = $args;
-        $count_args['fields'] = 'ids';
-        unset( $count_args['posts_per_page'], $count_args['offset'] );
-        $count_args['posts_per_page'] = -1;
-        $total       = count( get_posts( $count_args ) );
-        $total_pages = (int) ceil( $total / $per_page );
 
         return rest_ensure_response( array(
             'page' => $page, 'per_page' => $per_page,
