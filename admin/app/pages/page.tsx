@@ -86,28 +86,39 @@ export default function PagesPage() {
       const _allowed = getAllowedPostTypes();
 
       if (search) {
-        // ── SEARCH MODE: always search across ALL allowed post types ──
-        let results: any[];
-        if (_allowed.length === 0) {
-          // Superadmin: single call with post_type=all (WP handles it)
-          const json = await fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '100', search, post_type: 'all' })}`).then(r => r.json());
-          results = [json];
+        // ── SEARCH MODE ──
+        let merged: Page[] = [];
+
+        if (search === '__front_page__') {
+          // Domain-only URL entered — fetch WordPress front page
+          const json = await fetch('/api/pages/front-page').then(r => r.json());
+          merged = json.data || [];
+        } else if (search.startsWith('__url__:')) {
+          const rawUrl = search.slice('__url__:'.length);
+          const json2  = await fetch(`/api/pages/search-by-url?url=${encodeURIComponent(rawUrl)}`).then(r => r.json());
+          merged = json2.data || [];
         } else {
-          // User: parallel calls per assigned type
-          results = await Promise.all(
-            _allowed.map(t => fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '50', search, post_type: t })}`).then(r => r.json()))
-          );
-        }
-        const merged: Page[] = [];
-        const seen = new Set<number>();
-        for (const r of results) {
-          for (const p of (r.data || [])) {
-            if (!seen.has(p.id)) { seen.add(p.id); merged.push(p); }
+          let results: any[];
+          if (_allowed.length === 0) {
+            // Superadmin: single call, larger result set
+            const json = await fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '200', search, post_type: 'all' })}`).then(r => r.json());
+            results = [json];
+          } else {
+            // User: parallel per assigned type
+            results = await Promise.all(
+              _allowed.map(t => fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '100', search, post_type: t })}`).then(r => r.json()))
+            );
           }
+          const seen = new Set<number>();
+          for (const r of results) {
+            for (const p of (r.data || [])) {
+              if (!seen.has(p.id)) { seen.add(p.id); merged.push(p); }
+            }
+          }
+          // Sort by relevance (WP plugin orders by exact match first, client re-sorts too)
+          const q = search.toLowerCase();
+          merged.sort((a, b) => relevanceScore(b, q) - relevanceScore(a, q));
         }
-        // Sort by relevance score (best match first)
-        const q = search.toLowerCase();
-        merged.sort((a, b) => relevanceScore(b, q) - relevanceScore(a, q));
         setPages(merged);
         setTotalPages(1);
         setTotal(merged.length);
@@ -149,7 +160,27 @@ export default function PagesPage() {
 
   const displayPages = hideTranslated ? pages.filter(p => p.status !== 'complete') : pages;
 
-  function handleSearchSubmit(e: React.FormEvent) { e.preventDefault(); setPage(1); setSearch(searchInput.trim()); }
+  function handleSearchSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const raw = searchInput.trim();
+    if (!raw) { setSearch(''); setPage(1); return; }
+    // Detect URL input — extract the slug from path
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      try {
+        const u = new URL(raw);
+        const parts = u.pathname.replace(/^\/|\/$/g, '').split('/').filter(Boolean);
+        if (parts.length === 0) {
+          // Domain only — fetch front page
+          setSearch('__front_page__'); setPage(1); return;
+        }
+        // Strip 2-3 char language prefix (e.g. /ar/slug/ → slug)
+        const first = parts[0];
+        if ((first.length === 2 || first.length === 3) && /^[a-z]+$/.test(first)) parts.shift();
+        setSearch('__url__:' + raw); setPage(1); return;
+      } catch {}
+    }
+    setSearch(raw); setPage(1);
+  }
   function toggleSelect(id: number) { setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }); }
   function toggleAll() { setSelected(selected.size === displayPages.length ? new Set() : new Set(displayPages.map(p => p.id))); }
 
@@ -263,7 +294,7 @@ export default function PagesPage() {
           )}
           {search && (
             <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 99, background: 'rgba(0,77,66,0.08)', color: D.brand, fontWeight: 600, border: `1px solid rgba(0,77,66,0.2)` }}>
-              🔍 Searching across all types · {total} result{total !== 1 ? 's' : ''}
+              🔍 {search === '__front_page__' ? 'Showing home page' : search.startsWith('__url__:') ? `URL match · ${total} result${total !== 1 ? 's' : ''}` : `Searching across all types · ${total} result${total !== 1 ? 's' : ''}`}
             </span>
           )}
           <div ref={filterRef} style={{ position: 'relative' }}>

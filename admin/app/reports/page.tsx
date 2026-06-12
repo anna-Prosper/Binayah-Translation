@@ -129,7 +129,7 @@ export default function ReportsPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
           <h1 style={D.pageTitle}>Reports</h1>
-          <p style={D.pageSub}>Translation log — every page, API call, model, token usage, and field count.</p>
+          <p style={D.pageSub}>Translation log — every page translated, language, and field count.</p>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
           <button onClick={() => { fetchLog(); }} style={D.btnSecondary}><RefreshIcon /> Refresh</button>
@@ -183,9 +183,6 @@ export default function ReportsPage() {
                     {_isSuperAdmin && <th style={thStyle}>User</th>}
                     <th style={thStyle}>Post Type</th>
                     <th style={thStyle}>Language</th>
-                    <th style={thStyle}>API</th>
-                    <th style={thStyle}>Model</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>Tokens</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Fields</th>
                     <th style={thStyle}>Date</th>
                   </tr>
@@ -216,21 +213,6 @@ export default function ReportsPage() {
                             {li ? <FlagImg flag={li.flag} size={14} /> : null}
                             <span style={{ fontSize: 12, fontWeight: '600', textTransform: 'uppercase' }}>{entry.language}</span>
                           </div>
-                        </td>
-                        <td style={tdStyle}>
-                          <span style={{
-                            fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: '600',
-                            background: entry.api === 'openrouter' ? 'rgba(139,92,246,0.1)' : 'rgba(16,185,129,0.1)',
-                            color: entry.api === 'openrouter' ? '#7c3aed' : '#059669',
-                          }}>
-                            {entry.api === 'openrouter' ? 'OpenRouter' : 'DeepSeek'}
-                          </span>
-                        </td>
-                        <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11, color: D.text3 }}>
-                          {entry.model || '—'}
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                          {entry.tokens_used > 0 ? entry.tokens_used.toLocaleString() : <span style={{ color: D.text3 }}>0</span>}
                         </td>
                         <td style={{ ...tdStyle, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                           {entry.fields_count}

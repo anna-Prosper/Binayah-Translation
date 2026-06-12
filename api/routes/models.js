@@ -6,8 +6,10 @@ let orCacheTime = 0;
 const OR_TTL = 60 * 60 * 1000;
 
 const DEEPSEEK_MODELS = [
-  { id: 'deepseek-chat',     name: 'DeepSeek Chat (V3)' },
-  { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner (R1)' },
+  { id: 'deepseek-v4-flash',  name: 'DeepSeek V4 Flash' },
+  { id: 'deepseek-v4-pro',    name: 'DeepSeek V4 Pro' },
+  { id: 'deepseek-chat',      name: 'DeepSeek Chat V3 (legacy)' },
+  { id: 'deepseek-reasoner',  name: 'DeepSeek Reasoner R1 (legacy)' },
 ];
 
 module.exports = async function(fastify) {

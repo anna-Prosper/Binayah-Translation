@@ -23,6 +23,7 @@ const ICONS = {
   translate: <Ic><path d="M2 5h7M5 2v3M6 10c0 3-1 5-3 7"/><path d="M16 3l5 19M16 3l-5 19M18 14h-4"/></Ic>,
   languages: <Ic><circle cx={12} cy={12} r={10}/><line x1={2} y1={12} x2={22} y2={12}/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></Ic>,
   reports:   <Ic><line x1={18} y1={20} x2={18} y2={10}/><line x1={12} y1={20} x2={12} y2={4}/><line x1={6} y1={20} x2={6} y2={14}/></Ic>,
+  usage:     <Ic><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/><circle cx={18} cy={6} r={4} fill="currentColor" fillOpacity={.15}/><line x1={18} y1={4} x2={18} y2={8}/><line x1={16} y1={6} x2={20} y2={6}/></Ic>,
   settings:  <Ic><circle cx={12} cy={12} r={3}/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></Ic>,
   progress:  <Ic><circle cx={12} cy={12} r={10}/><polyline points="10 15 12 17 16 13"/><line x1={12} y1={8} x2={12} y2={12}/></Ic>,
   users:     <Ic><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx={9} cy={7} r={4}/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></Ic>,
@@ -36,6 +37,7 @@ const NAV = [
   { label: 'Languages', href: '/languages', icon: 'languages' },
   { label: 'Progress',  href: '/progress',  icon: 'progress'  },
   { label: 'Reports',   href: '/reports',   icon: 'reports'   },
+  { label: 'Usage',     href: '/usage',     icon: 'usage'     },
   { label: 'Users',     href: '/users',     icon: 'users'     },
   { label: 'Settings',  href: '/settings',  icon: 'settings'  },
 ] as const;

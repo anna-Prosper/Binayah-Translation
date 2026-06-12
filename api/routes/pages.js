@@ -47,6 +47,15 @@ module.exports = async function (fastify) {
     }
   });
 
+  fastify.get('/pages/front-page', async (req, reply) => {
+    try {
+      const res = await axios.get(`${WP()}/front-page`, { headers: HEADERS(), timeout: 10000 });
+      return res.data;
+    } catch (err) {
+      return reply.status(502).send({ error: 'Could not fetch front page', detail: err.message });
+    }
+  });
+
   fastify.get('/page/:id/content', async (req, reply) => {
     try {
       const res = await axios.get(`${WP()}/page/${req.params.id}/content`, {
@@ -130,6 +139,19 @@ module.exports = async function (fastify) {
       translated_count: translatedCount,
       pending_count:    pendingCount,
     };
+  });
+
+  fastify.get('/pages/search-by-url', async (req, reply) => {
+    try {
+      const res = await axios.get(`${WP()}/pages/search-by-url`, {
+        headers: HEADERS(),
+        params: { url: req.query.url || '' },
+        timeout: 15000,
+      });
+      return res.data;
+    } catch (err) {
+      return reply.status(502).send({ error: 'Could not search by URL', detail: err.message });
+    }
   });
 
 };

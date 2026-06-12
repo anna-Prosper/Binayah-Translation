@@ -4,8 +4,10 @@ import { useState, useEffect } from 'react';
 export interface Model { id: string; name: string; }
 
 export const DEEPSEEK_MODELS: Model[] = [
-  { id: 'deepseek-chat',     name: 'DeepSeek Chat (V3)' },
-  { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner (R1)' },
+  { id: 'deepseek-v4-flash',  name: 'DeepSeek V4 Flash' },
+  { id: 'deepseek-v4-pro',    name: 'DeepSeek V4 Pro' },
+  { id: 'deepseek-chat',      name: 'DeepSeek Chat V3 (legacy)' },
+  { id: 'deepseek-reasoner',  name: 'DeepSeek Reasoner R1 (legacy)' },
 ];
 
 export function useModels(api: string) {

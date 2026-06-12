@@ -136,7 +136,7 @@ function resolvePrompt(page_id, lang, overridePrompt) {
 const NAMES = {ar:'Arabic',fr:'French',es:'Spanish',de:'German',ru:'Russian',zh:'Chinese (Simplified)',it:'Italian',pt:'Portuguese',fa:'Persian',hi:'Hindi'};
 
 async function translateText(text, lang, api, model, systemPrompt) {
-  if (!shouldTranslate(text)) return text;
+  if (!shouldTranslate(text)) return { text, tokens: 0 };
   const langName = NAMES[lang] || lang;
   const prompt = 'You are a professional UAE real estate translator. Translate to ' + langName + '.\n' +
     'STRICT RULES:\n' +
@@ -156,16 +156,18 @@ async function translateText(text, lang, api, model, systemPrompt) {
       {model:modelId,messages:[{role:'system',content:prompt},{role:'user',content:text}],temperature:0.3,max_tokens:2000},
       {headers:{Authorization:'Bearer '+process.env.OPENROUTER_API_KEY,'HTTP-Referer':'https://binayah.com','X-Title':'Binayah Translate'},timeout:30000});
     const resOR = r.data.choices[0].message.content.trim();
-    if (isAIMetaResponse(resOR)) return text;
-    return resOR;
+    const tokensOR = (r.data.usage && r.data.usage.total_tokens) ? r.data.usage.total_tokens : 0;
+    if (isAIMetaResponse(resOR)) return { text, tokens: 0 };
+    return { text: resOR, tokens: tokensOR };
   }
   const modelId = model || process.env.DEEPSEEK_MODEL || 'deepseek-chat';
   const r = await axios.post((process.env.DEEPSEEK_BASE_URL||'https://api.deepseek.com/v1')+'/chat/completions',
     {model:modelId,messages:[{role:'system',content:prompt},{role:'user',content:text}],temperature:0.3,max_tokens:2000},
     {headers:{Authorization:'Bearer '+process.env.DEEPSEEK_API_KEY},timeout:30000});
   const resDS = r.data.choices[0].message.content.trim();
-  if (isAIMetaResponse(resDS)) return text;
-  return resDS;
+  const tokensDS = (r.data.usage && r.data.usage.total_tokens) ? r.data.usage.total_tokens : 0;
+  if (isAIMetaResponse(resDS)) return { text, tokens: 0 };
+  return { text: resDS, tokens: tokensDS };
 }
 
 async function runJob(job_id, page_id, language, langPrompts) {
@@ -200,12 +202,12 @@ async function runJob(job_id, page_id, language, langPrompts) {
     const {api,model} = resolveApiModel(page_id, lang);
     const overridePrompt = (langPrompts && langPrompts[lang]) ? langPrompts[lang] : null;
     const systemPrompt = resolvePrompt(page_id, lang, overridePrompt);
-    const translations={}; let done=0,failed=0;
+    const translations={}; let done=0,failed=0,totalTokens=0;
     for (const f of fields) {
       await waitIfPaused(job);
       if (job.stopped) { job.status='stopped'; break; }
       job.current_lang=lang; job.current_field=f.key;
-      try { translations[f.key]=await translateText(f.text,lang,api,model,systemPrompt); done++; }
+      try { const tr=await translateText(f.text,lang,api,model,systemPrompt); translations[f.key]=tr.text; done++; totalTokens+=tr.tokens||0; }
       catch { failed++; }
       job.progress++;
     }
@@ -224,7 +226,7 @@ async function runJob(job_id, page_id, language, langPrompts) {
       console.error('[BT] Save failed for post',page_id,'lang',lang,'error:',saveErr.message);
     }
     job.results.push({language:lang,translated:done,failed,api,model});
-    appendLog({id:job_id+"_"+lang,timestamp:new Date().toISOString(),post_id:page_id,post_title:job.page_title||"",post_type:(content.post_type||"post"),language:lang,language_name:lang,api:api,model:(model||"default"),fields_count:done,tokens_used:0,status:"done",user_id:job.user_id||"",user_name:job.user_name||""});
+    appendLog({id:job_id+"_"+lang,timestamp:new Date().toISOString(),post_id:page_id,post_title:job.page_title||"",post_type:(content.post_type||"post"),language:lang,language_name:lang,api:api,model:(model||"default"),fields_count:done,tokens_used:totalTokens,status:"done",user_id:job.user_id||"",user_name:job.user_name||""});
   }
   if (job.status !== 'stopped') job.status='done';
   setTimeout(()=>jobs.delete(job_id),10*60*1000);
