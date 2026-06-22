@@ -84,13 +84,18 @@ export default function Dashboard() {
         // Regular user: fetch user-specific stats
         const userId = getUserId();
         if (userId) {
-          const res = await fetch('/api/user-stats?user_id=' + userId);
+          const token = typeof window !== 'undefined' ? (localStorage.getItem('bt_token') || '') : '';
+          const activeSite = typeof window !== 'undefined' ? (localStorage.getItem('bt_active_site') || '') : '';
+          const qs = activeSite ? `&env=${encodeURIComponent(activeSite)}` : '';
+          const res = await fetch(`/api/user-stats?user_id=${userId}${qs}`, {
+            headers: token ? { Authorization: 'Bearer ' + token } : {},
+          });
           if (res.ok) {
             const data: UserStats = await res.json();
             setUserStats(data);
           }
         }
-        // Also fetch global stats as fallback for total_pages if user-stats fails
+        // Also fetch global stats as fallback
         const res2 = await fetch('/api/stats');
         if (res2.ok) setStats(await res2.json());
       }

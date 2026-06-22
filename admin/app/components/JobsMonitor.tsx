@@ -64,7 +64,9 @@ export default function JobsMonitor() {
   const [serverJobs,setServerJobs]= useState<Record<string,ServerJob>>({});
   const [open,      setOpen]      = useState(true);
   const [acting,    setActing]    = useState<Set<string>>(new Set());
+  const [errorPopup,setErrorPopup]= useState<{ title: string; msg: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const shownErrors = useRef<Set<string>>(new Set());
 
   function loadLocal() {
     try { setLocalJobs(JSON.parse(localStorage.getItem('bt_active_jobs')||'[]')); } catch {}
@@ -100,7 +102,13 @@ export default function JobsMonitor() {
         for (const localJob of active) {
           const srv = map[localJob.job_id];
           if (srv && srv.status !== 'running' && srv.status !== 'paused') {
-            setTimeout(() => dismissById(localJob.job_id), 5000);
+            if (srv.status === 'error' && srv.error && !shownErrors.current.has(localJob.job_id)) {
+              shownErrors.current.add(localJob.job_id);
+              const pageTitle = srv.page_title || ('Page ' + localJob.page_id);
+              setErrorPopup({ title: pageTitle, msg: srv.error });
+            } else if (srv.status !== 'error') {
+              setTimeout(() => dismissById(localJob.job_id), 5000);
+            }
           }
         }
       } catch {}
@@ -148,6 +156,38 @@ export default function JobsMonitor() {
 
   return (
     <>
+      {/* ── Fatal error popup ── */}
+      {errorPopup && (
+        <div style={{
+          position:'fixed',inset:0,zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',
+          background:'rgba(0,0,0,0.45)',backdropFilter:'blur(2px)',
+          fontFamily:'-apple-system,"Segoe UI",Arial,sans-serif',
+        }} onClick={()=>setErrorPopup(null)}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:'#fff',borderRadius:12,padding:'28px 28px 22px',maxWidth:420,width:'90%',
+            boxShadow:'0 8px 32px rgba(0,0,0,0.18)',border:'1px solid #fecaca',
+          }}>
+            {/* Red icon */}
+            <div style={{width:48,height:48,borderRadius:'50%',background:'rgba(239,68,68,0.1)',border:'1.5px solid rgba(239,68,68,0.25)',display:'flex',alignItems:'center',justifyContent:'center',marginBottom:14}}>
+              <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth={2} strokeLinecap="round">
+                <circle cx={12} cy={12} r={10}/><line x1={12} y1={8} x2={12} y2={12}/><line x1={12} y1={16} x2={12.01} y2={16}/>
+              </svg>
+            </div>
+            <div style={{fontSize:16,fontWeight:700,color:'#111',marginBottom:6}}>Translation Failed</div>
+            <div style={{fontSize:12,color:'#64748b',marginBottom:12,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{errorPopup.title}</div>
+            <div style={{fontSize:13,color:'#dc2626',background:'rgba(254,226,226,0.6)',border:'1px solid rgba(239,68,68,0.2)',borderRadius:8,padding:'10px 14px',marginBottom:18,lineHeight:1.5}}>
+              {errorPopup.msg}
+            </div>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button onClick={()=>setErrorPopup(null)} style={{
+                background:'#dc2626',color:'#fff',border:'none',borderRadius:7,
+                padding:'9px 22px',fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',
+              }}>OK, Got It</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes jm-in   { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
         @keyframes jm-ring  { 0%{transform:scale(1);opacity:.6} 70%{transform:scale(2.5);opacity:0} 100%{opacity:0} }

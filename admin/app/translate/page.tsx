@@ -48,8 +48,9 @@ export default function TranslatePage() {
   const { languages }             = useLanguages();
   const [pageId,       setPageId]       = useState('');
   const [lang,         setLang]         = useState(() => defaultLang());
-  const [selectedApi,  setSelectedApi]  = useState(() => { const a=defaultApi(); return a==='all'?'':a; });
-  const [selectedModel,setSelectedModel]= useState(() => defaultModel());
+  const [selectedApi,  setSelectedApi]  = useState('');
+  const [selectedModel,setSelectedModel]= useState('');
+  const [pageLoaded,   setPageLoaded]   = useState(false);
   const [fields,       setFields]       = useState<Field[]>([]);
   const [pageTitle,    setPageTitle]    = useState('');
   const [loading,      setLoading]      = useState(false);
@@ -108,25 +109,36 @@ export default function TranslatePage() {
     }
 
     try {
-      const [contentRes, trRes, cfgRes] = await Promise.all([
+      const [contentRes, trRes, cfgRes, langCfgsRes] = await Promise.all([
         fetch(`/api/page/${pageId}/content`),
         fetch(`/api/page/${pageId}/translations?lang=${lang}`),
         fetch(`/api/translate/page/${pageId}/config`),
+        fetch('/api/languages/config'),
       ]);
-      const data   = await contentRes.json();
-      const trData = trRes.ok ? await trRes.json() : {};
-      const cfg    = cfgRes.ok ? await cfgRes.json() : {};
+      const data     = await contentRes.json();
+      const trData   = trRes.ok ? await trRes.json() : {};
+      const cfg      = cfgRes.ok ? await cfgRes.json() : {};
+      const langCfgs = langCfgsRes.ok ? await langCfgsRes.json() : [];
       setPageNotAllowed(false);
       setPageTitle(data.post_title || '');
-      // If no saved api config, default to user's assigned API (not blank)
-      const userApi = getAllowedApi();
-      const isRestricted = !isAdmin() && userApi !== 'all';
-      const newApi = cfg.api || (isRestricted ? (userApi === 'both' ? 'deepseek' : userApi) : '');
-      setSelectedApi(newApi);
-      // If no saved model, default to first allowed model for this API
-      const resolvedApi = (newApi || 'deepseek') as 'deepseek' | 'openrouter';
-      const allowedMods = !isAdmin() ? getAllowedModelsForApi(resolvedApi) : [];
-      setSelectedModel(cfg.model || (allowedMods.length ? allowedMods[0] : ''));
+      // Resolve full hierarchy: page per-lang > lang edit > page ai config > global
+      const pageLang  = ((cfg.langModels || {})[lang]) || {};
+      const langCfg   = ((langCfgs || []) as any[]).find(l => l.code === lang) || {};
+      let resolvedApi = (pageLang.api || langCfg.api || cfg.api || cfg.global_api || 'deepseek') as 'deepseek' | 'openrouter';
+      // Respect user permissions
+      const uApi = getAllowedApi(); const uRestricted = !isAdmin() && uApi !== 'all';
+      if (uRestricted && !isApiAllowed(resolvedApi)) {
+        resolvedApi = (uApi === 'both' ? 'deepseek' : uApi) as 'deepseek' | 'openrouter';
+      }
+      const defMdl = resolvedApi === 'openrouter' ? 'openai/gpt-4o-mini' : 'deepseek-chat';
+      let resolvedModel = pageLang.model || langCfg.model || cfg.model || cfg.global_model || defMdl;
+      if (uRestricted) {
+        const uMods = getAllowedModelsForApi(resolvedApi);
+        if (uMods.length && !uMods.includes(resolvedModel)) resolvedModel = uMods[0];
+      }
+      setSelectedApi(resolvedApi);
+      setSelectedModel(resolvedModel);
+      setPageLoaded(true);
       setFields(
         Object.entries(data.fields || {})
           .map(([key, val]: [string, any]) => ({ key, original: typeof val === 'object' ? val.value : val, translated: trData[key] || '' }))
@@ -204,7 +216,7 @@ export default function TranslatePage() {
       <div style={{ ...D.cardLg, marginBottom: 16, display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 120 }}>
           <label style={D.label}>Page ID</label>
-          <input value={pageId} onChange={e => { setPageId(e.target.value); setPageNotAllowed(false); setFields([]); setPageTitle(''); }} placeholder="Enter page ID…" style={D.input} />
+          <input value={pageId} onChange={e => { setPageId(e.target.value); setPageNotAllowed(false); setFields([]); setPageTitle(''); setPageLoaded(false); setSelectedApi(''); setSelectedModel(''); }} placeholder="Enter page ID…" style={D.input} />
         </div>
         <div>
           <label style={D.label}>Language</label>
@@ -214,39 +226,41 @@ export default function TranslatePage() {
         </div>
         <div>
           <label style={D.label}>API</label>
-          <select value={selectedApi} onChange={e => { setSelectedApi(e.target.value); setSelectedModel(''); }} style={{ ...D.select, minWidth: 140 }}>
-            {isAdmin() ? (
-              <>
-                <option value="">Default</option>
-                <option value="deepseek">DeepSeek</option>
-                <option value="openrouter">OpenRouter</option>
-              </>
-            ) : (
-              <>
-                {(getAllowedApi()==='all') && <option value="">Default</option>}
-                {isApiAllowed('deepseek') && <option value="deepseek">DeepSeek</option>}
-                {isApiAllowed('openrouter') && <option value="openrouter">OpenRouter</option>}
-              </>
-            )}
-          </select>
+          {!pageLoaded
+            ? <select disabled style={{...D.select,minWidth:140}}><option value="">—</option></select>
+            : <select value={selectedApi} onChange={e => { setSelectedApi(e.target.value); setSelectedModel(''); }} style={{ ...D.select, minWidth: 140 }}>
+                {isAdmin() ? (
+                  <>
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="openrouter">OpenRouter</option>
+                  </>
+                ) : (
+                  <>
+                    {isApiAllowed('deepseek') && <option value="deepseek">DeepSeek</option>}
+                    {isApiAllowed('openrouter') && <option value="openrouter">OpenRouter</option>}
+                  </>
+                )}
+              </select>
+          }
         </div>
         <div>
           <label style={D.label}>Model</label>
-          {isAdmin()
-            ? <ModelSelect api={effectiveApi} value={selectedModel} onChange={setSelectedModel} includeDefault={true}
-                style={{ ...D.select, minWidth: 200 }} />
-            : <select value={selectedModel} onChange={e=>setSelectedModel(e.target.value)} style={{...D.select,minWidth:200}}>
-                {(()=>{
-                  const allowed = getAllowedModelsForApi(effectiveApi as 'deepseek'|'openrouter');
-                  const dsAll = [{id:'deepseek-chat',name:'DeepSeek Chat (V3)'},{id:'deepseek-reasoner',name:'DeepSeek Reasoner (R1)'}];
-                  const orFallback = ['openai/gpt-4o-mini','openai/gpt-5-mini','openai/gpt-5','anthropic/claude-3.5-sonnet'];
-                  const list = effectiveApi==='deepseek'
-                    ? (allowed.length ? dsAll.filter(m=>allowed.includes(m.id)) : dsAll).map(m=>({id:m.id,label:m.name}))
-                    : (allowed.length ? allowed : orFallback).map(id=>({id,label:id}));
-                  const showDef = allowed.length === 0; // Default = global config, only when no specific assignment
-                  return [...(showDef ? [<option key="" value="">Default</option>] : []),...list.map(m=><option key={m.id} value={m.id}>{m.label}</option>)];
-                })()}
-              </select>
+          {!pageLoaded
+            ? <select disabled style={{...D.select,minWidth:200}}><option value="">—</option></select>
+            : isAdmin()
+              ? <ModelSelect api={effectiveApi} value={selectedModel} onChange={setSelectedModel} includeDefault={false}
+                  style={{ ...D.select, minWidth: 200 }} />
+              : <select value={selectedModel} onChange={e=>setSelectedModel(e.target.value)} style={{...D.select,minWidth:200}}>
+                  {(()=>{
+                    const allowed = getAllowedModelsForApi(effectiveApi as 'deepseek'|'openrouter');
+                    const dsAll = [{id:'deepseek-chat',name:'DeepSeek Chat (V3)'},{id:'deepseek-reasoner',name:'DeepSeek Reasoner (R1)'}];
+                    const orFallback = ['openai/gpt-4o-mini','openai/gpt-5-mini','openai/gpt-5','anthropic/claude-3.5-sonnet'];
+                    const list = effectiveApi==='deepseek'
+                      ? (allowed.length ? dsAll.filter(m=>allowed.includes(m.id)) : dsAll).map(m=>({id:m.id,label:m.name}))
+                      : (allowed.length ? allowed : orFallback).map(id=>({id,label:id}));
+                    return list.map(m=><option key={m.id} value={m.id}>{m.label}</option>);
+                  })()}
+                </select>
           }
         </div>
         <button onClick={loadPage} disabled={loading || isRunning} className="bt-btn-secondary"

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 
 export interface Language {
   code: string; name: string; native: string; flag: string;
-  dir: string; enabled: boolean; api: string; countries?: string[];
+  dir: string; enabled: boolean; api: string; countries?: string[]; prompt?: string;
 }
 
 function emojiToCode(emoji: string): string {

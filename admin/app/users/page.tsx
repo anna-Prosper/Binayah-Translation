@@ -13,7 +13,9 @@ interface Permission {
   models:             string[]; // legacy
   deepseek_models:    string[];
   openrouter_models:  string[];
+  sites?:             Record<string, string[]>; // site key -> post_types ([] = all)
 }
+interface SiteInfo { key: string; name: string; connected: boolean; }
 interface User {
   id:string; username:string; role:string;
   created_at:string; last_login:string|null;
@@ -35,7 +37,7 @@ const tk  = () => {
 };
 const aH  = () => ({ 'Content-Type':'application/json', Authorization:'Bearer '+tk() });
 const dH  = () => ({ Authorization:'Bearer '+tk() }); // DELETE - no Content-Type
-const ep  = (): Permission => ({ hide_modules:[], languages:[], post_types:[], api:'all', models:[], deepseek_models:[], openrouter_models:[] });
+const ep  = (): Permission => ({ hide_modules:[], languages:[], post_types:[], api:'all', models:[], deepseek_models:[], openrouter_models:[], sites:{} });
 
 /* ── tiny helpers ── */
 function Avatar({ name, size=36 }:{name:string;size?:number}) {
@@ -110,15 +112,29 @@ function CheckList({ items, selected, onChange, placeholder }:{
 }
 
 /* ── Permission Form ── */
-function PermForm({ perm, onChange, langs, postTypes, dsModels, orModels }:{
+function PermForm({ perm, onChange, langs, postTypes, dsModels, orModels, availableSites }:{
   perm:Permission; onChange:(p:Permission)=>void;
   langs:{code:string;name:string;flag:string}[];
   postTypes:PostType[]; dsModels:ModelItem[]; orModels:ModelItem[];
+  availableSites: SiteInfo[];
 }) {
   const sec:React.CSSProperties = { marginBottom:20,paddingBottom:20,borderBottom:'1px solid #f1f5f9' };
   const lbl:React.CSSProperties = { fontSize:11.5,fontWeight:700,color:'#374151',marginBottom:6,display:'block',textTransform:'uppercase',letterSpacing:'0.07em' };
   const allLangs = perm.languages.length===0;
-  const allPT    = perm.post_types.length===0;
+
+  const assignedSites = perm.sites || {};
+  const isSiteEnabled = (key: string) => key in assignedSites;
+
+  function toggleSite(key: string) {
+    const cur = { ...(perm.sites || {}) };
+    if (key in cur) { delete cur[key]; }
+    else { cur[key] = []; }
+    onChange({ ...perm, sites: cur });
+  }
+
+  function setSitePostTypes(key: string, types: string[]) {
+    onChange({ ...perm, sites: { ...(perm.sites || {}), [key]: types } });
+  }
 
   return (
     <div>
@@ -160,25 +176,58 @@ function PermForm({ perm, onChange, langs, postTypes, dsModels, orModels }:{
         </div>
       </div>
 
-      {/* Section 3 — Website Modules */}
+      {/* Section 3 — Website Access */}
       <div style={sec}>
-        <span style={lbl}>Website Modules</span>
-        <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:12 }}>
-          <div>
-            <label style={{ ...D.label }}>Access Type</label>
-            <select value={allPT?'all':'specific'} onChange={e=>onChange({...perm,post_types:e.target.value==='all'?[]:[postTypes[0]?.slug||'page']})} style={{...D.select,width:'100%'}}>
-              <option value="all">All Post Types</option>
-              <option value="specific">Specific Post Types</option>
-            </select>
+        <span style={lbl}>Website Access</span>
+        <p style={{ margin:'0 0 10px',fontSize:12,color:'#94a3b8',lineHeight:1.5 }}>
+          Assign websites and post types. If only one site is assigned, the user is locked to it with no switcher.
+        </p>
+        {availableSites.length === 0 ? (
+          <div style={{ padding:'9px 12px',borderRadius:7,background:'#fff7ed',border:'1px solid #fed7aa',fontSize:12.5,color:'#9a3412' }}>No sites configured in env-config yet.</div>
+        ) : (
+          <div style={{ display:'flex',flexDirection:'column',gap:12 }}>
+            {availableSites.map(site => (
+              <div key={site.key} style={{ border:`1.5px solid ${isSiteEnabled(site.key)?'#004D42':'#e2e8f0'}`,borderRadius:8,overflow:'hidden',transition:'border-color .12s' }}>
+                {/* Site toggle header */}
+                <label style={{ display:'flex',alignItems:'center',gap:10,padding:'10px 14px',cursor:'pointer',background:isSiteEnabled(site.key)?'rgba(0,77,66,0.04)':'#fafbfc',userSelect:'none' }}>
+                  <div onClick={()=>toggleSite(site.key)} style={{ width:18,height:18,borderRadius:5,border:`2px solid ${isSiteEnabled(site.key)?'#004D42':'#d1d9e0'}`,background:isSiteEnabled(site.key)?'#004D42':'#fff',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,transition:'all .12s',cursor:'pointer' }}>
+                    {isSiteEnabled(site.key) && <svg width={10} height={10} viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3" fill="none" stroke="#fff" strokeWidth={2.2} strokeLinecap="round"/></svg>}
+                  </div>
+                  <input type="checkbox" checked={isSiteEnabled(site.key)} onChange={()=>toggleSite(site.key)} style={{ display:'none' }} />
+                  <div style={{ flex:1 }}>
+                    <span style={{ fontSize:13,fontWeight:600,color:'#111' }}>{site.name}</span>
+                    <span style={{ marginLeft:8,fontSize:11,padding:'2px 7px',borderRadius:99,background:site.connected?'rgba(16,185,129,0.1)':'rgba(239,68,68,0.1)',color:site.connected?'#059669':'#dc2626',fontWeight:600 }}>{site.connected?'Connected':'Not connected'}</span>
+                  </div>
+                  <span style={{ fontSize:11,color:'#94a3b8' }}>{site.key}</span>
+                </label>
+                {/* Post type picker — only shown when site is enabled */}
+                {isSiteEnabled(site.key) && (
+                  <div style={{ padding:'10px 14px 14px',borderTop:'1px solid #f1f5f9',background:'#fff' }}>
+                    <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8 }}>
+                      <label style={{ ...D.label,margin:0 }}>Post Types for {site.name}</label>
+                      {(assignedSites[site.key]||[]).length > 0 && (
+                        <button type="button" onClick={()=>setSitePostTypes(site.key,[])} style={{ fontSize:11,color:'#059669',background:'none',border:'none',cursor:'pointer',fontWeight:600,padding:0 }}>
+                          Clear (allow all)
+                        </button>
+                      )}
+                    </div>
+                    <CheckList
+                      items={postTypes.map(p=>({value:p.slug,label:p.label,sub:String(p.count)}))}
+                      selected={assignedSites[site.key]||[]}
+                      onChange={v=>setSitePostTypes(site.key,v)}
+                      placeholder="Loading post types..."
+                    />
+                    <p style={{ margin:'6px 0 0',fontSize:11,color:'#94a3b8' }}>
+                      {(assignedSites[site.key]||[]).length===0
+                        ? 'No selection = all post types allowed. Check items to restrict.'
+                        : `${(assignedSites[site.key]||[]).length} type(s) selected — user sees only these.`}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-          <div>
-            <label style={{ ...D.label }}>{allPT?'Allowed':'Select Post Types'}</label>
-            {allPT
-              ? <div style={{ padding:'9px 12px',borderRadius:7,background:'#f0fdf4',border:'1px solid #bbf7d0',fontSize:12.5,color:'#15803d',fontWeight:600 }}>All post types allowed</div>
-              : <CheckList items={postTypes.map(p=>({value:p.slug,label:p.label,sub:String(p.count)}))} selected={perm.post_types} onChange={v=>onChange({...perm,post_types:v.length?v:[postTypes[0]?.slug||'page']})} placeholder="Loading post types..." />
-            }
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Section 4 — AI Model Access */}
@@ -231,13 +280,14 @@ export default function UsersPage() {
   const router = useRouter();
   const { user: me } = usePermissions();
   const { languages } = useLanguages();
-  const [users,     setUsers]     = useState<User[]>([]);
-  const [postTypes, setPostTypes] = useState<PostType[]>([]);
-  const [dsModels,  setDsModels]  = useState<ModelItem[]>([]);
-  const [orModels,  setOrModels]  = useState<ModelItem[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [msg,       setMsg]       = useState<{text:string;ok:boolean}|null>(null);
-  const [showAdd,   setShowAdd]   = useState(false);
+  const [users,          setUsers]          = useState<User[]>([]);
+  const [postTypes,      setPostTypes]      = useState<PostType[]>([]);
+  const [dsModels,       setDsModels]       = useState<ModelItem[]>([]);
+  const [orModels,       setOrModels]       = useState<ModelItem[]>([]);
+  const [availableSites, setAvailableSites] = useState<SiteInfo[]>([]);
+  const [loading,        setLoading]        = useState(true);
+  const [msg,            setMsg]            = useState<{text:string;ok:boolean}|null>(null);
+  const [showAdd,        setShowAdd]        = useState(false);
   const [editUser,  setEditUser]  = useState<User|null>(null);
   const [delUser,   setDelUser]   = useState<User|null>(null);
   const [saving,    setSaving]    = useState(false);
@@ -263,6 +313,9 @@ export default function UsersPage() {
     fetch('/api/post-types').then(r=>r.json()).then(d=>{if(Array.isArray(d))setPostTypes(d);}).catch(()=>{});
     fetch('/api/models?api=deepseek').then(r=>r.json()).then(d=>{if(d.models)setDsModels(d.models);}).catch(()=>{});
     fetch('/api/models?api=openrouter').then(r=>r.json()).then(d=>{if(d.models)setOrModels(d.models);}).catch(()=>{});
+    fetch('/api/env',{headers:aH()}).then(r=>r.json()).then(d=>{
+      if(d.sites) setAvailableSites(Object.entries(d.sites).map(([key,s]:any)=>({key,name:s.name||key,connected:s.connected})));
+    }).catch(()=>{});
   }, [load]);
 
   const flash = (text:string,ok:boolean) => { setMsg({text,ok}); setTimeout(()=>setMsg(null),4000); };
@@ -271,7 +324,7 @@ export default function UsersPage() {
   function openEdit(u:User) {
     const p=u.permissions||ep();
     setFormUser(u.username);setFormPass('');setFormRole(u.role as any);setErrors({});
-    setFormPerm({hide_modules:p.hide_modules||[],languages:p.languages||[],post_types:p.post_types||[],api:(p as any).api||'all',models:p.models||[],deepseek_models:(p as any).deepseek_models||[],openrouter_models:(p as any).openrouter_models||[]});
+    setFormPerm({hide_modules:p.hide_modules||[],languages:p.languages||[],post_types:p.post_types||[],api:(p as any).api||'all',models:p.models||[],deepseek_models:(p as any).deepseek_models||[],openrouter_models:(p as any).openrouter_models||[],sites:(p as any).sites||{}});
     setShowPass(false);setEditUser(u);
   }
 
@@ -423,7 +476,7 @@ export default function UsersPage() {
                   </div>
                 )}
               </div>
-              <PermForm perm={formPerm} onChange={setFormPerm} langs={languages as any[]} postTypes={postTypes} dsModels={dsModels} orModels={orModels} />
+              <PermForm perm={formPerm} onChange={setFormPerm} langs={languages as any[]} postTypes={postTypes} dsModels={dsModels} orModels={orModels} availableSites={availableSites} />
             </div>
             {/* Footer */}
             <div style={{ padding:'14px 24px',borderTop:'1px solid #f1f5f9',display:'flex',gap:10,justifyContent:'flex-end',flexShrink:0,background:'#fafbfc' }}>

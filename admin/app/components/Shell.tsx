@@ -196,7 +196,72 @@ export default function Shell({ children }: { children: ReactNode }) {
   const { user } = usePermissions();
   const _isAdmin = isSuperAdmin(user);
   const [hasMounted, setHasMounted] = useState(false);
+  const [envInfo, setEnvInfo] = useState<{ active: string; sites: Record<string, { name: string; connected: boolean }> } | null>(null);
+  const [envSwitching, setEnvSwitching] = useState(false);
+  // Per-user site state (for non-superadmin users with site assignments)
+  const [userSiteKeys, setUserSiteKeys] = useState<string[]>([]);
+  const [userActiveSite, setUserActiveSite] = useState<string>('');
+
   useEffect(() => { setHasMounted(true); }, []);
+
+  useEffect(() => {
+    // Superadmin: fetch global env from server
+    if (_isAdmin) {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('bt_token') : null;
+      if (!token) return;
+      fetch('/api/env', { headers: { Authorization: 'Bearer ' + token } })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) setEnvInfo(d); })
+        .catch(() => {});
+      return;
+    }
+    // Regular user: read site assignments from JWT
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('bt_token') : '';
+      if (!token) return;
+      const b = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(b.padEnd(b.length + (4 - b.length % 4) % 4, '=')));
+      const sites = (payload.permissions || {}).sites || {};
+      const keys = Object.keys(sites);
+      if (keys.length > 0) {
+        setUserSiteKeys(keys);
+        const stored = typeof window !== 'undefined' ? (localStorage.getItem('bt_active_site') || '') : '';
+        setUserActiveSite(keys.includes(stored) ? stored : keys[0]);
+      }
+    } catch {}
+  }, [_isAdmin]);
+
+  async function switchEnv(target: string) {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('bt_token') : null;
+    if (!token || envSwitching) return;
+    setEnvSwitching(true);
+    try {
+      if (_isAdmin) {
+        // Superadmin: global switch via API
+        const r = await fetch('/api/env/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+          body: JSON.stringify({ env: target }),
+        });
+        if (r.ok) setEnvInfo(prev => prev ? { ...prev, active: target } : prev);
+      } else {
+        // Regular user: personal switch via localStorage
+        localStorage.setItem('bt_active_site', target);
+        setUserActiveSite(target);
+        window.dispatchEvent(new CustomEvent('bt_site_changed', { detail: target }));
+      }
+    } finally { setEnvSwitching(false); }
+  }
+
+  // Determine what to show in env badge
+  const showEnvBadge = _isAdmin ? !!envInfo : userSiteKeys.length > 0;
+  const activeSiteKey = _isAdmin ? (envInfo?.active || '') : userActiveSite;
+  const canSwitch = _isAdmin ? Object.keys(envInfo?.sites || {}).length > 1 : userSiteKeys.length > 1;
+  const siteLabel = activeSiteKey === 'live' ? 'LIVE' : activeSiteKey === 'staging' ? 'STAGING' : activeSiteKey.toUpperCase();
+  const nextSite  = _isAdmin
+    ? (activeSiteKey === 'live' ? 'staging' : 'live')
+    : userSiteKeys.find(k => k !== activeSiteKey) || '';
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: D.bg, fontFamily: '-apple-system, "Segoe UI", Arial, sans-serif', color: D.text1, fontSize: 13 }}>
       <aside style={{
@@ -207,6 +272,33 @@ export default function Shell({ children }: { children: ReactNode }) {
         <div style={{ padding: '20px 20px 14px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
           <img src="/logo.svg" alt="Binayah" style={{ height: 34, filter: 'brightness(0) invert(1)', objectFit: 'contain', display: 'block' }} />
         </div>
+        {hasMounted && showEnvBadge && (
+          <div style={{ padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 6, background: 'rgba(0,0,0,0.15)' }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                background: activeSiteKey === 'live' ? '#10b981' : '#f59e0b',
+                boxShadow: activeSiteKey === 'live' ? '0 0 6px #10b981' : '0 0 6px #f59e0b',
+              }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em', flex: 1 }}>
+                {siteLabel}
+              </span>
+              {canSwitch ? (
+                <button
+                  onClick={() => switchEnv(nextSite)}
+                  disabled={envSwitching}
+                  style={{
+                    fontSize: 10, padding: '2px 7px', borderRadius: 4, border: '1px solid rgba(255,255,255,0.25)',
+                    background: 'transparent', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
+                  }}>
+                  {envSwitching ? '...' : 'Switch'}
+                </button>
+              ) : (
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>locked</span>
+              )}
+            </div>
+          </div>
+        )}
         <nav style={{ flex: 1, padding: '10px 10px', overflow: 'auto' }}>
           {NAV.filter(item => {
             if (!hasMounted) return true; // SSR/initial hydration: CSS handles hiding

@@ -10,6 +10,7 @@ export interface UserPerms {
   models: string[];          // legacy field — kept for backward compat
   deepseek_models: string[]; // [] = all deepseek models allowed
   openrouter_models: string[]; // [] = all openrouter models allowed
+  sites?: Record<string, string[]>; // site key -> post_types ([] = all)
 }
 
 const DS_IDS = ['deepseek-chat', 'deepseek-reasoner'];
@@ -32,6 +33,7 @@ function readPerms(): UserPerms | null {
       models:            perms.models        || [],
       deepseek_models:   perms.deepseek_models   || [],
       openrouter_models: perms.openrouter_models  || [],
+      sites:             perms.sites         || undefined,
     };
   } catch { return null; }
 }
@@ -105,6 +107,41 @@ export function defaultModel(): string {
   const api = defaultApi();
   const models = getAllowedModelsForApi(api as 'deepseek' | 'openrouter');
   return models.length ? models[0] : '';
+}
+
+// ── Site helpers ──────────────────────────────────────────────────────────────
+
+// Get site keys this user can access ([] means all / superadmin)
+export function getUserSites(): string[] {
+  const p = getPerms();
+  if (isAdmin() || !p.sites || !Object.keys(p.sites).length) return [];
+  return Object.keys(p.sites);
+}
+
+// Get user's active site — from localStorage, falling back to their first site
+export function getActiveSite(): string {
+  const sites = getUserSites();
+  if (!sites.length) return ''; // superadmin: use global env
+  const stored = typeof window !== 'undefined' ? (localStorage.getItem('bt_active_site') || '') : '';
+  if (stored && sites.includes(stored)) return stored;
+  return sites[0];
+}
+
+// Set user's personal active site
+export function setActiveSite(key: string): void {
+  if (typeof window !== 'undefined') localStorage.setItem('bt_active_site', key);
+}
+
+// Get allowed post types for a specific site (or global if no site config)
+export function getAllowedPostTypesForSite(siteKey?: string): string[] {
+  const p = getPerms();
+  if (isAdmin()) return [];
+  // If user has site-specific assignments and a siteKey is given
+  if (siteKey && p.sites && p.sites[siteKey] !== undefined) {
+    return p.sites[siteKey]; // [] means all post types on that site
+  }
+  // Fall back to global post_types
+  return p.post_types || [];
 }
 
 // Filter a list to only allowed values (empty allowed = all ok)

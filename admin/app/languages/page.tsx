@@ -4,6 +4,7 @@ import Shell, { D, Alert } from '../components/Shell';
 import { ModelSelect } from '../lib/useModels';
 import PromptBox from '../components/PromptBox';
 import { FlagImg } from '../lib/useLanguages';
+import { isAdmin, getAllowedApi, isApiAllowed, getAllowedModelsForApi } from '../lib/perms';
 
 interface Language {
   code: string; name: string; flag: string; native?: string; dir?: string;
@@ -184,18 +185,23 @@ export default function LanguagesPage() {
   const [editLang, setEditLang]   = useState<Language | null>(null);
   const [form, setForm]           = useState({ ...emptyForm });
   const [saving, setSaving]       = useState(false);
+  const [globalCfg, setGlobalCfg] = useState<{api:string,model:string}>({api:'deepseek',model:''});
 
   function showMsg(text: string, ok: boolean) { setAlert({ text, ok }); setTimeout(() => setAlert(null), 4000); }
 
   async function loadAll() {
     setLoading(true);
     try {
-      const [langRes, statsRes] = await Promise.all([
+      const [langRes, statsRes, gCfgRes] = await Promise.all([
         fetch('/api/languages/config').then(r => r.json()),
         fetch('/api/stats').then(r => r.json()).catch(() => null),
+        fetch('/api/settings/global').then(r => r.json()).catch(() => ({})),
       ]);
       setLanguages(Array.isArray(langRes) ? langRes : []);
       if (statsRes) setStats(statsRes);
+      const gApi = gCfgRes?.api || 'deepseek';
+      const gDefMdl = gApi === 'openrouter' ? 'openai/gpt-4o-mini' : 'deepseek-chat';
+      setGlobalCfg({ api: gApi, model: gCfgRes?.model || gDefMdl });
     } catch { showMsg('Failed to load languages', false); }
     setLoading(false);
   }
@@ -238,7 +244,19 @@ export default function LanguagesPage() {
     if (Array.isArray((lang as any).countries)) countries = (lang as any).countries;
     else if (typeof (lang as any).country_codes === 'string' && (lang as any).country_codes)
       countries = (lang as any).country_codes.split(',').map((s: string) => s.trim()).filter(Boolean);
-    setForm({ code: lang.code, api: lang.api || '', model: lang.model || '', countries, enabled: lang.enabled !== false, prompt: (lang as any).prompt || '' });
+    const userAllowedApi = getAllowedApi();
+    const isRestricted = !isAdmin() && userAllowedApi !== 'all';
+    const fallbackApi = isRestricted
+      ? (isApiAllowed(globalCfg.api as 'deepseek'|'openrouter') ? globalCfg.api : (userAllowedApi === 'both' ? 'deepseek' : userAllowedApi))
+      : globalCfg.api;
+    let resolvedApi = lang.api || fallbackApi;
+    if (isRestricted && !isApiAllowed(resolvedApi as 'deepseek'|'openrouter')) {
+      resolvedApi = userAllowedApi === 'both' ? 'deepseek' : userAllowedApi;
+    }
+    const allowedMdls = isRestricted ? getAllowedModelsForApi(resolvedApi as 'deepseek'|'openrouter') : [];
+    let resolvedMdl = lang.model || globalCfg.model;
+    if (allowedMdls.length && !allowedMdls.includes(resolvedMdl)) resolvedMdl = allowedMdls[0];
+    setForm({ code: lang.code, api: resolvedApi, model: resolvedMdl, countries, enabled: lang.enabled !== false, prompt: (lang as any).prompt || '' });
     setEditLang(lang);
   }
 
@@ -322,12 +340,10 @@ export default function LanguagesPage() {
                 </div>
 
                 <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-                  {lang.api ? (
+                  {lang.api && (
                     <span style={{ fontSize: 11, padding: '2px 7px', background: 'rgba(0,77,66,0.08)', border: '1px solid rgba(0,77,66,0.15)', borderRadius: 4, color: D.brand }}>
                       {lang.api === 'openrouter' ? 'OpenRouter' : 'DeepSeek'}
                     </span>
-                  ) : (
-                    <span style={{ fontSize: 11, color: D.text3 }}>Default API</span>
                   )}
                   {lang.model && (
                     <span style={{ fontSize: 11, padding: '2px 7px', background: '#f1f5f9', border: `1px solid ${D.border}`, borderRadius: 4, color: D.text3 }}>{lang.model}</span>
@@ -393,8 +409,8 @@ export default function LanguagesPage() {
                   <select className="bt-input-focus" style={{ ...D.select, width: '100%' }}
                     value={form.api} onChange={e => setForm(f => ({ ...f, api: e.target.value, model: '' }))}>
                     <option value="">Default (Global)</option>
-                    <option value="deepseek">DeepSeek</option>
-                    <option value="openrouter">OpenRouter</option>
+                    {(isAdmin() || isApiAllowed('deepseek')) && <option value="deepseek">DeepSeek</option>}
+                    {(isAdmin() || isApiAllowed('openrouter')) && <option value="openrouter">OpenRouter</option>}
                   </select>
                 </div>
                 {form.api && (
@@ -454,15 +470,17 @@ export default function LanguagesPage() {
                   <select className="bt-input-focus" style={{ ...D.select, width: '100%' }}
                     value={form.api} onChange={e => setForm(f => ({ ...f, api: e.target.value, model: '' }))}>
                     <option value="">Default (Global)</option>
-                    <option value="deepseek">DeepSeek</option>
-                    <option value="openrouter">OpenRouter</option>
+                    {(isAdmin() || isApiAllowed('deepseek')) && <option value="deepseek">DeepSeek</option>}
+                    {(isAdmin() || isApiAllowed('openrouter')) && <option value="openrouter">OpenRouter</option>}
                   </select>
                 </div>
-                <div>
-                  <label style={D.label}>Model</label>
-                  <ModelSelect api={form.api || 'deepseek'} value={form.model} includeDefault={true}
-                    onChange={model => setForm(f => ({ ...f, model }))} style={{ ...D.select, width: '100%' }} />
-                </div>
+                {form.api && (
+                  <div>
+                    <label style={D.label}>Model</label>
+                    <ModelSelect api={form.api} value={form.model} includeDefault={true}
+                      onChange={model => setForm(f => ({ ...f, model }))} style={{ ...D.select, width: '100%' }} />
+                  </div>
+                )}
               </div>
 
               <div style={{ marginBottom: 16 }}>

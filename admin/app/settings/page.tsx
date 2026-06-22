@@ -38,6 +38,8 @@ export default function SettingsPage() {
   const [promptSaving,    setPromptSaving]    = useState(false);
   const [globalSaving,    setGlobalSaving]    = useState(false);
   const [globalMsg,       setGlobalMsg]       = useState<{text:string;ok:boolean}|null>(null);
+  const [cacheStats,      setCacheStats]      = useState<{total_entries:number;total_hits:number;by_lang:Record<string,number>}|null>(null);
+  const [cacheClearing,   setCacheClearing]   = useState(false);
 
   function showMsg(t: string, ok: boolean) { setMsg({ text: t, ok }); setTimeout(() => setMsg(null), 5000); }
 
@@ -49,7 +51,6 @@ export default function SettingsPage() {
     setOpenrouterMasked(fresh.openrouter_masked || '');
   }
 
-
   useEffect(() => {
     loadStatus();
     fetch('/api/settings/global').then(r => r.json()).then(d => {
@@ -57,7 +58,20 @@ export default function SettingsPage() {
       setGlobalModel(d.model || 'deepseek-chat');
       setGlobalPrompt(d.prompt || '');
     }).catch(() => {});
+    fetch('/api/cache/stats', { headers: { Authorization: 'Bearer ' + (localStorage.getItem('bt_token') || '') } })
+      .then(r => r.ok ? r.json() : null).then(d => { if (d) setCacheStats(d); }).catch(() => {});
   }, []);
+
+  async function clearCache() {
+    if (!confirm('Clear the entire translation cache? This cannot be undone.')) return;
+    setCacheClearing(true);
+    try {
+      const r = await fetch('/api/cache/clear', { method: 'POST', headers: authHeaders() });
+      if (r.ok) { setCacheStats({ total_entries: 0, total_hits: 0, by_lang: {} }); showMsg('Cache cleared.', true); }
+      else showMsg('Failed to clear cache.', false);
+    } catch { showMsg('Error clearing cache.', false); }
+    setCacheClearing(false);
+  }
 
   async function save() {
     if (!deepseekKey && !openrouterKey) { showMsg('Enter at least one key to save', false); return; }
@@ -265,6 +279,45 @@ export default function SettingsPage() {
         </div>
 
       </div>
+
+      {/* Translation Cache */}
+      <div style={{ ...D.card, marginTop: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div>
+            <h2 style={{ margin: '0 0 2px', fontSize: 15, fontWeight: 700, color: D.text1 }}>Translation Cache</h2>
+            <p style={{ margin: 0, fontSize: 12, color: D.text3 }}>Repeated content is served from cache — no AI call, no tokens used.</p>
+          </div>
+          <button onClick={clearCache} disabled={cacheClearing} style={{ ...D.btnDanger, fontSize: 12, padding: '6px 14px', opacity: cacheClearing ? 0.6 : 1 }}>
+            {cacheClearing ? 'Clearing...' : 'Clear Cache'}
+          </button>
+        </div>
+        {!cacheStats ? (
+          <div style={{ fontSize: 13, color: D.text3 }}>Loading cache stats...</div>
+        ) : (
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Cached Translations', value: cacheStats.total_entries.toLocaleString(), color: '#3b82f6' },
+              { label: 'Cache Hits (tokens saved)', value: cacheStats.total_hits.toLocaleString(), color: '#10b981' },
+              { label: 'Languages Cached', value: Object.keys(cacheStats.by_lang).length, color: '#8b5cf6' },
+            ].map(s => (
+              <div key={s.label} style={{ flex: 1, minWidth: 140, padding: '12px 16px', borderRadius: 8, background: `${s.color}0f`, border: `1px solid ${s.color}25` }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: D.text3, marginTop: 3 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        {cacheStats && Object.keys(cacheStats.by_lang).length > 0 && (
+          <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {Object.entries(cacheStats.by_lang).sort((a,b) => b[1]-a[1]).map(([lang, count]) => (
+              <span key={lang} style={{ fontSize: 11, padding: '3px 9px', borderRadius: 99, background: '#f1f5f9', border: '1px solid #e2e8f0', color: D.text2 }}>
+                {lang.toUpperCase()} · {count}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
     </Shell>
   );
 }

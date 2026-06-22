@@ -1,5 +1,5 @@
 'use client';
-import { getAllowedLangs, getAllowedPostTypes, getAllowedApi, getAllowedModels, defaultLang, defaultModel, filterAllowed, isAdmin, isApiAllowed, getAllowedModelsForApi } from '../lib/perms';
+import { getAllowedLangs, getAllowedPostTypes, getAllowedPostTypesForSite, getActiveSite, getAllowedApi, getAllowedModels, defaultLang, defaultModel, filterAllowed, isAdmin, isApiAllowed, getAllowedModelsForApi } from '../lib/perms';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import Shell, { D, Alert } from '../components/Shell';
 import PromptBox from '../components/PromptBox';
@@ -14,8 +14,11 @@ interface Page {
   status: 'complete' | 'partial' | 'not_started';
 }
 interface PostType { slug: string; label: string; count: number; }
-interface CfgModal { pageId: number; title: string; api: string; model: string; loading: boolean; }
-interface TranslateModal { page: Page; selectedLangs: string[]; step: 1|2; prompts: Record<string,string>; running: boolean; }
+interface CfgModal { pageId: number; title: string; api: string; model: string; globalApi: string; globalModel: string; loading: boolean; }
+interface TranslateModal { page: Page; selectedLangs: string[]; step: 1|2; prompts: Record<string,string>; forceMap: Record<string,boolean>; modelMap: Record<string,{api:string,model:string}>; running: boolean; }
+interface LangHistory { timestamp: string; user_name: string; api: string; model: string; fields_count: number; tokens_used: number; }
+interface LangReport  { language: string; language_name: string; count: number; history: LangHistory[]; }
+interface PageReport  { post_id: number; page_title: string; total_translations: number; languages: LangReport[]; }
 
 const STATUS_STYLE: Record<string, React.CSSProperties> = {
   complete:    { background: 'rgba(16,185,129,0.1)',  color: '#059669', border: '1px solid rgba(16,185,129,0.25)' },
@@ -51,8 +54,9 @@ export default function PagesPage() {
   const [total, setTotal]               = useState(0);
   const [postTypes, setPostTypes]       = useState<PostType[]>([]);
   const [filterOpen, setFilterOpen]     = useState(false);
-  const [activeTypes, setActiveTypes]   = useState<string[]>(() => getAllowedPostTypes());
-  const [pendingTypes, setPendingTypes] = useState<string[]>(() => getAllowedPostTypes());
+  const [activeSite, setActiveSite]     = useState<string>(() => typeof window !== 'undefined' ? getActiveSite() : '');
+  const [activeTypes, setActiveTypes]   = useState<string[]>(() => getAllowedPostTypesForSite(typeof window !== 'undefined' ? getActiveSite() : ''));
+  const [pendingTypes, setPendingTypes] = useState<string[]>(() => getAllowedPostTypesForSite(typeof window !== 'undefined' ? getActiveSite() : ''));
   const [hideTranslated, setHideTranslated] = useState(false);
   const [selected, setSelected]         = useState<Set<number>>(new Set());
   const [bulkLang, setBulkLang]         = useState(() => defaultLang());
@@ -62,15 +66,39 @@ export default function PagesPage() {
   const [urlModal,  setUrlModal]         = useState<Page | null>(null);
   const [cfgSaving, setCfgSaving]       = useState(false);
   const [trModal, setTrModal]           = useState<TranslateModal | null>(null);
+  const [globalPrompt, setGlobalPrompt] = useState('');
+  const [langPromptMap, setLangPromptMap] = useState<Record<string,string>>({});
+  const [globalApiModel, setGlobalApiModel] = useState<{api:string,model:string}>({api:'deepseek',model:''});
+  const [langApiCfgs, setLangApiCfgs] = useState<Record<string,{api:string,model:string}>>({});
+  const [pageApiCfg, setPageApiCfg] = useState<{api:string,model:string,langModels:Record<string,{api:string,model:string}>}>({api:'',model:'',langModels:{}});
+  const [reportModal, setReportModal]   = useState<{ page: Page; data: PageReport | null; loading: boolean } | null>(null);
+  const [expandedLang, setExpandedLang] = useState<string | null>(null);
   const filterRef = useRef<HTMLDivElement>(null);
 
   function showAlert(t: string, ok: boolean) { setAlert({ text: t, ok }); setTimeout(() => setAlert(null), 5000); }
 
+  // Listen for personal site switch (regular users) and refresh
   useEffect(() => {
-    fetch('/api/post-types').then(r => r.json()).then((d: PostType[]) => {
+    function onSiteChanged(e: Event) {
+      const newSite = (e as CustomEvent).detail as string;
+      setActiveSite(newSite);
+      const newTypes = getAllowedPostTypesForSite(newSite);
+      setActiveTypes(newTypes);
+      setPendingTypes(newTypes);
+      setPage(1);
+    }
+    window.addEventListener('bt_site_changed', onSiteChanged);
+    return () => window.removeEventListener('bt_site_changed', onSiteChanged);
+  }, []);
+
+  useEffect(() => {
+    const qs = activeSite ? `?env=${encodeURIComponent(activeSite)}` : '';
+    const token = typeof window !== 'undefined' ? localStorage.getItem('bt_token') : null;
+    const headers: HeadersInit = token ? { Authorization: 'Bearer ' + token } : {};
+    fetch(`/api/post-types${qs}`, { headers }).then(r => r.json()).then((d: PostType[]) => {
       if (Array.isArray(d)) setPostTypes(d);
     }).catch(() => {});
-  }, []);
+  }, [activeSite]);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -83,30 +111,30 @@ export default function PagesPage() {
   const fetchPages = useCallback(async () => {
     setLoading(true); setSelected(new Set());
     try {
-      const _allowed = getAllowedPostTypes();
+      const _allowed = getAllowedPostTypesForSite(activeSite);
+      const token = typeof window !== 'undefined' ? localStorage.getItem('bt_token') : null;
+      const authHeaders: HeadersInit = token ? { Authorization: 'Bearer ' + token } : {};
+      const envQs = activeSite ? `&env=${encodeURIComponent(activeSite)}` : '';
 
       if (search) {
         // ── SEARCH MODE ──
         let merged: Page[] = [];
 
         if (search === '__front_page__') {
-          // Domain-only URL entered — fetch WordPress front page
-          const json = await fetch('/api/pages/front-page').then(r => r.json());
+          const json = await fetch(`/api/pages/front-page?_=1${envQs}`, { headers: authHeaders }).then(r => r.json());
           merged = json.data || [];
         } else if (search.startsWith('__url__:')) {
           const rawUrl = search.slice('__url__:'.length);
-          const json2  = await fetch(`/api/pages/search-by-url?url=${encodeURIComponent(rawUrl)}`).then(r => r.json());
+          const json2  = await fetch(`/api/pages/search-by-url?url=${encodeURIComponent(rawUrl)}${envQs}`, { headers: authHeaders }).then(r => r.json());
           merged = json2.data || [];
         } else {
           let results: any[];
           if (_allowed.length === 0) {
-            // Superadmin: single call, larger result set
-            const json = await fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '200', search, post_type: 'all' })}`).then(r => r.json());
+            const json = await fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '200', search, post_type: 'all' })}${envQs}`, { headers: authHeaders }).then(r => r.json());
             results = [json];
           } else {
-            // User: parallel per assigned type
             results = await Promise.all(
-              _allowed.map(t => fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '100', search, post_type: t })}`).then(r => r.json()))
+              _allowed.map(t => fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '100', search, post_type: t })}${envQs}`, { headers: authHeaders }).then(r => r.json()))
             );
           }
           const seen = new Set<number>();
@@ -115,7 +143,6 @@ export default function PagesPage() {
               if (!seen.has(p.id)) { seen.add(p.id); merged.push(p); }
             }
           }
-          // Sort by relevance (WP plugin orders by exact match first, client re-sorts too)
           const q = search.toLowerCase();
           merged.sort((a, b) => relevanceScore(b, q) - relevanceScore(a, q));
         }
@@ -128,35 +155,69 @@ export default function PagesPage() {
           ? (activeTypes.length ? activeTypes.filter(t => _allowed.includes(t)) : _allowed)
           : activeTypes;
         if (_effective.length > 1) {
+          // Fetch all pages for each type (up to 500 each) then paginate client-side
           const results = await Promise.all(
-            _effective.map(t => fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '50', post_type: t })}`).then(r => r.json()))
+            _effective.map(t => fetch(`/api/pages?${new URLSearchParams({ page: '1', per_page: '500', post_type: t })}${envQs}`, { headers: authHeaders }).then(r => r.json()))
           );
-          const merged: Page[] = [];
+          const allMerged: Page[] = [];
           const seen = new Set<number>();
           for (const r of results) {
             for (const p of (r.data || [])) {
-              if (!seen.has(p.id)) { seen.add(p.id); merged.push(p); }
+              if (!seen.has(p.id)) { seen.add(p.id); allMerged.push(p); }
             }
           }
-          merged.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
-          setPages(merged); setTotalPages(1);
-          setTotal(results.reduce((s, r) => s + (r.total || 0), 0));
+          allMerged.sort((a, b) => new Date(b.modified).getTime() - new Date(a.modified).getTime());
+          const totalCount = allMerged.length;
+          const totalPgs = Math.max(1, Math.ceil(totalCount / PER_PAGE));
+          const sliced = allMerged.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+          setPages(sliced); setTotalPages(totalPgs);
+          setTotal(totalCount);
         } else {
-          const _apt = getAllowedPostTypes();
-          const _eff = _apt.length
-            ? (activeTypes.length ? activeTypes.filter((t: string) => _apt.includes(t)) : _apt)
+          const _eff = _allowed.length
+            ? (activeTypes.length ? activeTypes.filter((t: string) => _allowed.includes(t)) : _allowed)
             : (activeTypes.length === 1 ? [activeTypes[0]] : []);
           const _po: Record<string,string> = { page: String(page), per_page: String(PER_PAGE) };
           if (_eff.length === 1) _po.post_type = _eff[0];
-          const json = await fetch(`/api/pages?${new URLSearchParams(_po)}`).then(r => r.json());
+          const json = await fetch(`/api/pages?${new URLSearchParams(_po)}${envQs}`, { headers: authHeaders }).then(r => r.json());
           setPages(json.data || []); setTotalPages(json.total_pages || 1); setTotal(json.total || 0);
         }
       }
     } catch { showAlert('Error loading pages', false); }
     setLoading(false);
-  }, [page, search, activeTypes]);
+  }, [page, search, activeTypes, activeSite]);
 
   useEffect(() => { fetchPages(); }, [fetchPages]);
+
+  // Load global + language prompts for pre-filling translate modal
+  useEffect(() => {
+    fetch('/api/settings/global').then(r => r.json()).then(d => { setGlobalPrompt(d.prompt || ''); const gApi = d.api||'deepseek'; const gDefMdl = gApi === 'openrouter' ? 'openai/gpt-4o-mini' : 'deepseek-chat'; setGlobalApiModel({api: gApi, model: d.model||gDefMdl}); }).catch(() => {});
+    fetch('/api/languages/config').then(r => r.json()).then((d: any[]) => {
+      const pmap: Record<string,string> = {};
+      const amap: Record<string,{api:string,model:string}> = {};
+      (d || []).forEach((l: any) => {
+        if (l.prompt) pmap[l.code] = l.prompt;
+        if (l.api || l.model) { const la = l.api||'deepseek'; amap[l.code] = {api: la, model: l.model||(la==='openrouter'?'openai/gpt-4o-mini':'deepseek-chat')}; }
+      });
+      setLangPromptMap(pmap);
+      setLangApiCfgs(amap);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!trModal) return;
+    const postId = trModal.page.post_id;
+    fetch(`/api/translate/page/${postId}/config`, {
+      headers: { 'Authorization': 'Bearer ' + (localStorage.getItem('bt_token') || '') }
+    })
+      .then(r => r.json())
+      .then(d => {
+        if (d.prompts && Object.keys(d.prompts).length > 0) {
+          setTrModal(m => m ? { ...m, prompts: { ...d.prompts, ...m.prompts } } : null);
+        }
+        setPageApiCfg({ api: d.api||'', model: d.model||'', langModels: d.langModels||{} });
+      })
+      .catch(() => {});
+  }, [trModal?.page?.post_id]);
 
   const displayPages = hideTranslated ? pages.filter(p => p.status !== 'complete') : pages;
 
@@ -185,19 +246,31 @@ export default function PagesPage() {
   function toggleAll() { setSelected(selected.size === displayPages.length ? new Set() : new Set(displayPages.map(p => p.id))); }
 
   function openFilter() { setPendingTypes([...activeTypes]); setFilterOpen(true); }
-  function applyFilter() { const a=getAllowedPostTypes(); const filtered=a.length?pendingTypes.filter(t=>a.includes(t)):pendingTypes; setActiveTypes(filtered.length?filtered:[...a]); setPage(1); setFilterOpen(false); }
-  function clearFilter() { const a=getAllowedPostTypes(); setPendingTypes([...a]); setActiveTypes([...a]); setPage(1); setFilterOpen(false); }
-  function removeType(slug: string) { const a=getAllowedPostTypes(); setActiveTypes(t => { const n=t.filter(x=>x!==slug); return n.length>0?n:[...a]; }); setPage(1); }
+  function applyFilter() { const a=getAllowedPostTypesForSite(activeSite); const filtered=a.length?pendingTypes.filter(t=>a.includes(t)):pendingTypes; setActiveTypes(filtered.length?filtered:a.length?[...a]:[]); setPage(1); setFilterOpen(false); }
+  function clearFilter() { const a=getAllowedPostTypesForSite(activeSite); setPendingTypes([...a]); setActiveTypes([...a]); setPage(1); setFilterOpen(false); }
+  function removeType(slug: string) { const a=getAllowedPostTypesForSite(activeSite); setActiveTypes(t => { const n=t.filter(x=>x!==slug); return n.length>0?n:[...a]; }); setPage(1); }
 
   async function quickTranslate() {
     if (!trModal || !trModal.selectedLangs.length) return;
     setTrModal(m => m ? { ...m, running: true } : null);
+    const authH = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('bt_token') || '') };
+    // Save non-empty page-specific prompts to page-config
+    const toSave = Object.fromEntries(
+      Object.entries(trModal.prompts).filter(([_, v]) => v && (v as string).trim())
+    );
+    const langModelsToSave = trModal.modelMap;
+    if (Object.keys(toSave).length > 0 || Object.keys(langModelsToSave).length > 0) {
+      await fetch(`/api/translate/page/${trModal.page.post_id}/config`, {
+        method: 'PUT', headers: authH,
+        body: JSON.stringify({ prompts: toSave, langModels: langModelsToSave }),
+      }).catch(() => {});
+    }
     let done = 0;
     for (const lang of trModal.selectedLangs) {
       try {
         const data = await fetch('/api/translate/page/async', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem('bt_token') || '') },
-          body: JSON.stringify({ page_id: trModal.page.post_id, language: lang, ...(trModal.prompts[lang] ? {prompts:{[lang]:trModal.prompts[lang]}} : {}) }),
+          method: 'POST', headers: authH,
+          body: JSON.stringify({ page_id: trModal.page.post_id, language: lang, force: trModal.forceMap[lang] || false }),
         }).then(r => r.json());
         if (data.job_id) { addJob({ job_id: data.job_id, lang, page_id: trModal.page.post_id, page_title: trModal.page.title }); done++; }
       } catch {}
@@ -205,7 +278,6 @@ export default function PagesPage() {
     setTrModal(null);
     showAlert(`Started ${done} translation job${done !== 1 ? 's' : ''} — watch monitor`, true);
   }
-
   async function bulkTranslate() {
     if (!selected.size) return;
     setBulkRunning(true);
@@ -225,20 +297,47 @@ export default function PagesPage() {
   }
 
   async function openCfgModal(p: Page) {
-    setCfgModal({ pageId: p.id, title: p.title, api: '', model: '', loading: true });
+    setCfgModal({ pageId: p.id, title: p.title, api: '', model: '', globalApi: '', globalModel: '', loading: true });
     try {
       const cfg = await fetch(`/api/translate/page/${p.id}/config`).then(r => r.json());
       setCfgModal(m => {
         if (!m) return null;
         const allowedApi = getAllowedApi();
         const userIsRestricted = !isAdmin() && allowedApi !== 'all';
-        const api = cfg.api || (userIsRestricted ? (allowedApi === 'both' ? 'deepseek' : allowedApi) : '');
+        let api = cfg.api || cfg.global_api || 'deepseek';
+        if (userIsRestricted && !isApiAllowed(api as 'deepseek'|'openrouter')) {
+          api = allowedApi === 'both' ? 'deepseek' : allowedApi;
+        }
         const resolvedApi = (api || 'deepseek') as 'deepseek' | 'openrouter';
+        const defMdl = resolvedApi === 'openrouter' ? 'openai/gpt-4o-mini' : 'deepseek-chat';
         const allowedMods = !isAdmin() ? getAllowedModelsForApi(resolvedApi) : [];
-        const model = cfg.model || (allowedMods.length ? allowedMods[0] : '');
-        return { ...m, api, model, loading: false };
+        let model = cfg.model || cfg.global_model || defMdl;
+        if (allowedMods.length && !allowedMods.includes(model)) model = allowedMods[0];
+        const globalApi = cfg.global_api || 'deepseek';
+        const globalDefMdl = globalApi === 'openrouter' ? 'openai/gpt-4o-mini' : 'deepseek-chat';
+        const globalModel = cfg.global_model || globalDefMdl;
+        return { ...m, api, model, globalApi, globalModel, loading: false };
       });
     } catch { showAlert('Error loading config', false); setCfgModal(null); }
+  }
+
+  async function openReport(p: Page) {
+    setReportModal({ page: p, data: null, loading: true });
+    setExpandedLang(null);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('bt_token') : null;
+      const res = await fetch(`/api/page-report/${p.post_id}`, {
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
+      });
+      if (res.ok) {
+        const data: PageReport = await res.json();
+        setReportModal(prev => prev ? { ...prev, data, loading: false } : null);
+      } else {
+        setReportModal(prev => prev ? { ...prev, loading: false } : null);
+      }
+    } catch {
+      setReportModal(prev => prev ? { ...prev, loading: false } : null);
+    }
   }
 
   async function saveCfg(e: React.FormEvent) {
@@ -315,7 +414,7 @@ export default function PagesPage() {
                 <div style={{ fontSize: 12, fontWeight: '600', color: '#333', marginBottom: 10 }}>Post Types</div>
                 <div style={{ maxHeight: 260, overflowY: 'auto' }}>
                   {postTypes.filter(pt => {
-                    const allowed = getAllowedPostTypes();
+                    const allowed = getAllowedPostTypesForSite(activeSite);
                     return !allowed.length || allowed.includes(pt.slug);
                   }).map(pt => (
                     <label key={pt.slug} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 4px', cursor: 'pointer', borderRadius: 4 }}>
@@ -451,7 +550,7 @@ export default function PagesPage() {
                     </td>
                     <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => setTrModal({ page: p, selectedLangs: [], step: 1, prompts: {}, running: false })}
+                        <button onClick={() => setTrModal({ page: p, selectedLangs: [], step: 1, prompts: {}, forceMap: {}, modelMap: {}, running: false })}
                           style={{ ...D.btnPrimary, fontSize: 12, padding: '5px 12px' }}>Translate</button>
                         <button onClick={() => openCfgModal(p)}
                           style={{ ...D.btnSecondary, fontSize: 12, padding: '5px 12px' }}>AI Config</button>
@@ -459,6 +558,11 @@ export default function PagesPage() {
                           style={{ ...D.btnSecondary, fontSize: 12, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                           <svg width={12} height={12} viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth={2} strokeLinecap='round'><circle cx='12' cy='12' r='10'/><line x1='2' y1='12' x2='22' y2='12'/><path d='M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z'/></svg>
                           URLs
+                        </button>
+                        <button onClick={() => openReport(p)}
+                          style={{ ...D.btnSecondary, fontSize: 12, padding: '5px 12px', display: 'inline-flex', alignItems: 'center', gap: 4, color: '#7c3aed', borderColor: 'rgba(124,58,237,0.3)' }}>
+                          <svg width={12} height={12} viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth={2} strokeLinecap='round'><path d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/><polyline points='14 2 14 8 20 8'/><line x1='16' y1='13' x2='8' y2='13'/><line x1='16' y1='17' x2='8' y2='17'/><polyline points='10 9 9 9 8 9'/></svg>
+                          Report
                         </button>
                       </div>
                     </td>
@@ -517,14 +621,24 @@ export default function PagesPage() {
                       const checked = trModal.selectedLangs.includes(l.code);
                       const done = trModal.page.translated_languages?.includes(l.code);
                       return (
-                        <label key={l.code} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 6, border: `1.5px solid ${checked ? D.brand : D.border}`, background: checked ? 'rgba(0,77,66,0.05)' : '#fff', cursor: 'pointer' }}>
-                          <input type="checkbox" checked={checked}
-                            onChange={() => setTrModal(m => m ? { ...m, selectedLangs: checked ? m.selectedLangs.filter(c => c !== l.code) : [...m.selectedLangs, l.code] } : null)}
-                            style={{ accentColor: D.brand }} />
-                          <FlagImg flag={l.flag} size={14} />
-                          <span style={{ fontSize: 13, color: D.text1, flex: 1 }}>{l.name}</span>
-                          {done && <span style={{ fontSize: 10, fontWeight: 700, color: '#10b981' }}>✓</span>}
-                        </label>
+                        <div style={{ borderRadius: 6, border: `1.5px solid ${checked ? D.brand : D.border}`, background: checked ? 'rgba(0,77,66,0.05)' : '#fff', overflow: 'hidden' }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={checked}
+                              onChange={() => setTrModal(m => m ? { ...m, selectedLangs: checked ? m.selectedLangs.filter(c => c !== l.code) : [...m.selectedLangs, l.code] } : null)}
+                              style={{ accentColor: D.brand }} />
+                            <FlagImg flag={l.flag} size={14} />
+                            <span style={{ fontSize: 13, color: D.text1, flex: 1 }}>{l.name}</span>
+                            {done && <span style={{ fontSize: 10, fontWeight: 700, color: '#10b981' }}>✓</span>}
+                          </label>
+                          {done && checked && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 6px 28px', cursor: 'pointer', borderTop: '1px solid #e9eef3', background: trModal.forceMap[l.code] ? 'rgba(239,68,68,0.05)' : '#f8fafc' }}>
+                              <input type="checkbox" checked={trModal.forceMap[l.code] || false}
+                                onChange={e => setTrModal(m => m ? { ...m, forceMap: { ...m.forceMap, [l.code]: e.target.checked } } : null)}
+                                style={{ accentColor: '#ef4444', width: 11, height: 11 }} />
+                              <span style={{ fontSize: 10, color: trModal.forceMap[l.code] ? '#ef4444' : '#94a3b8', fontWeight: trModal.forceMap[l.code] ? 700 : 400 }}>Force re-translate</span>
+                            </label>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -552,6 +666,39 @@ export default function PagesPage() {
                             rows={4}
                             autoLoadDefault={true}
                           />
+                          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
+                            {trModal.prompts[code] === (langPromptMap[code] || globalPrompt || '') && !trModal.prompts[code] ? 'No custom prompt — using default'
+                            : trModal.prompts[code] === langPromptMap[code] ? `Language default pre-filled — edit to override for this page only`
+                            : trModal.prompts[code] === globalPrompt && !langPromptMap[code] ? 'Global default pre-filled — edit to override for this page only'
+                            : 'Page-specific override — will be saved for this page'}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                            <label style={{ fontSize: 11, color: D.text3, whiteSpace: 'nowrap', minWidth: 60 }}>AI Model</label>
+                            <select
+                              value={trModal.modelMap[code]?.api || 'deepseek'}
+                              onChange={e => setTrModal(m => m ? {...m, modelMap: {...m.modelMap, [code]: {api: e.target.value, model: ''}}} : null)}
+                              style={{...D.select, fontSize: 12, padding: '4px 8px', flex: 1}}>
+                              {(isAdmin() || isApiAllowed('deepseek')) && <option value="deepseek">DeepSeek</option>}
+                              {(isAdmin() || isApiAllowed('openrouter')) && <option value="openrouter">OpenRouter</option>}
+                            </select>
+                            {isAdmin()
+                              ? <ModelSelect
+                                  api={trModal.modelMap[code]?.api || 'deepseek'}
+                                  value={trModal.modelMap[code]?.model || ''}
+                                  includeDefault={false}
+                                  onChange={(model: string) => setTrModal(m => m ? {...m, modelMap: {...m.modelMap, [code]: {...(m.modelMap[code]||{api:'deepseek'}), model}}} : null)}
+                                  style={{...D.select, fontSize: 12, padding: '4px 8px', flex: 2}}
+                                />
+                              : <select
+                                  value={trModal.modelMap[code]?.model || ''}
+                                  onChange={e => setTrModal(m => m ? {...m, modelMap: {...m.modelMap, [code]: {...(m.modelMap[code]||{api:'deepseek'}), model: e.target.value}}} : null)}
+                                  style={{...D.select, fontSize: 12, padding: '4px 8px', flex: 2}}>
+                                  {getAllowedModelsForApi((trModal.modelMap[code]?.api||'deepseek') as 'deepseek'|'openrouter').map(mid =>
+                                    <option key={mid} value={mid}>{mid}</option>
+                                  )}
+                                </select>
+                            }
+                          </div>
                         </div>
                       </div>
                     );
@@ -571,7 +718,34 @@ export default function PagesPage() {
                 {trModal.step === 1 ? (
                   <button style={{ ...D.btnPrimary, opacity: !trModal.selectedLangs.length ? 0.4 : 1 }}
                     disabled={!trModal.selectedLangs.length}
-                    onClick={() => setTrModal(m => m ? { ...m, step: 2 } : null)}>
+                    onClick={() => setTrModal(m => {
+                      if (!m) return null;
+                      const filled: Record<string,string> = {};
+                      const mmap: Record<string,{api:string,model:string}> = {};
+                      for (const code of m.selectedLangs) {
+                        filled[code] = m.prompts[code] || langPromptMap[code] || globalPrompt || '';
+                        // Priority: lang-edit > page langModels > page global > global
+                        const lc = langApiCfgs[code];
+                        const plm = pageApiCfg.langModels[code];
+                        const pgApi = pageApiCfg.api || ''; const pgMdl = pageApiCfg.model || (pgApi === 'openrouter' ? 'openai/gpt-4o-mini' : 'deepseek-chat'); const pg = pgApi ? {api: pgApi, model: pgMdl} : null;
+                        const resolved = m.modelMap[code]?.model ? m.modelMap[code] : (lc?.api ? lc : (plm?.api ? plm : (pg || globalApiModel)));
+                        let rApi = (resolved.api || 'deepseek') as string;
+                        // Clamp to user's allowed api
+                        const uAllowedApi = getAllowedApi(); const uRestricted = !isAdmin() && uAllowedApi !== 'all';
+                        if (uRestricted && !isApiAllowed(rApi as 'deepseek'|'openrouter')) {
+                          rApi = uAllowedApi === 'both' ? 'deepseek' : uAllowedApi;
+                        }
+                        const rDefMdl = rApi === 'openrouter' ? 'openai/gpt-4o-mini' : 'deepseek-chat';
+                        let rModel = resolved.model || rDefMdl;
+                        // Clamp to user's allowed models
+                        if (uRestricted) {
+                          const uMods = getAllowedModelsForApi(rApi as 'deepseek'|'openrouter');
+                          if (uMods.length && !uMods.includes(rModel)) rModel = uMods[0];
+                        }
+                        mmap[code] = {api: rApi, model: rModel};
+                      }
+                      return { ...m, step: 2, prompts: filled, modelMap: mmap };
+                    })}>
                     Next: Prompts →
                   </button>
                 ) : (
@@ -600,13 +774,11 @@ export default function PagesPage() {
                     value={cfgModal.api} onChange={e => setCfgModal(m => m ? { ...m, api: e.target.value, model: '' } : null)}>
                     {isAdmin() ? (
                       <>
-                        <option value="">Default (Global)</option>
                         <option value="deepseek">DeepSeek</option>
                         <option value="openrouter">OpenRouter</option>
                       </>
                     ) : (
                       <>
-                        {getAllowedApi()==='all' && <option value="">Default (Global)</option>}
                         {isApiAllowed('deepseek') && <option value="deepseek">DeepSeek</option>}
                         {isApiAllowed('openrouter') && <option value="openrouter">OpenRouter</option>}
                       </>
@@ -616,7 +788,7 @@ export default function PagesPage() {
                 <div style={{ marginBottom: 20 }}>
                   <label style={D.label}>Model</label>
                   {isAdmin()
-                    ? <ModelSelect api={cfgModal.api || 'deepseek'} value={cfgModal.model} includeDefault={true}
+                    ? <ModelSelect api={cfgModal.api || 'deepseek'} value={cfgModal.model} includeDefault={false}
                         onChange={model => setCfgModal(m => m ? { ...m, model } : null)} style={{ ...D.select, width: '100%' }} />
                     : <select value={cfgModal.model} onChange={e=>setCfgModal(m=>m?{...m,model:e.target.value}:null)} style={{...D.select,width:'100%'}}>
                         {(()=>{
@@ -703,6 +875,113 @@ export default function PagesPage() {
             {/* Footer */}
             <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${D.border}`, display: 'flex', justifyContent: 'flex-end' }}>
               <button onClick={() => setUrlModal(null)} style={{ ...D.btnSecondary, fontSize: 13 }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Report Modal */}
+      {reportModal && (
+        <div className="bt-overlay" onClick={e => { if (e.target === e.currentTarget) { setReportModal(null); setExpandedLang(null); } }}>
+          <div className="bt-modal" style={{ maxWidth: 680, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div>
+                <h2 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: D.text1 }}>Translation Report</h2>
+                <p style={{ margin: 0, fontSize: 12, color: D.text3, maxWidth: 520, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{reportModal.page.title}</p>
+              </div>
+              <button onClick={() => { setReportModal(null); setExpandedLang(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: D.text3, fontSize: 20, lineHeight: 1, padding: 4 }}>×</button>
+            </div>
+
+            {reportModal.loading ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: D.text3, fontSize: 13 }}>Loading report...</div>
+            ) : !reportModal.data || reportModal.data.languages.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px 0', color: D.text3, fontSize: 13 }}>No translations found for this page yet.</div>
+            ) : (
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+                {/* Summary bar */}
+                <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+                  {[
+                    { label: 'Total Runs',   value: reportModal.data.total_translations, color: '#3b82f6' },
+                    { label: 'Languages',    value: reportModal.data.languages.length,   color: '#10b981' },
+                    { label: 'Re-translated', value: reportModal.data.languages.filter(l => l.count > 1).length, color: '#f59e0b' },
+                  ].map(s => (
+                    <div key={s.label} style={{ flex: 1, minWidth: 120, padding: '10px 14px', borderRadius: 8, background: `${s.color}0f`, border: `1px solid ${s.color}25` }}>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
+                      <div style={{ fontSize: 11, color: D.text3, marginTop: 2 }}>{s.label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Language rows */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {reportModal.data.languages.map(lang => {
+                    const isExpanded = expandedLang === lang.language;
+                    const isRepeat   = lang.count > 1;
+                    const last       = lang.history[0];
+                    const lastDate   = last ? new Date(last.timestamp).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+                    return (
+                      <div key={lang.language} style={{ border: `1.5px solid ${isRepeat ? 'rgba(245,158,11,0.35)' : D.border}`, borderRadius: 8, overflow: 'hidden', background: isRepeat ? 'rgba(245,158,11,0.02)' : '#fff' }}>
+                        {/* Row header */}
+                        <div onClick={() => setExpandedLang(isExpanded ? null : lang.language)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}>
+                          <div style={{ width: 36, height: 36, borderRadius: 8, background: isRepeat ? 'rgba(245,158,11,0.12)' : 'rgba(0,77,66,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: isRepeat ? '#d97706' : D.brand }}>{lang.language.toUpperCase()}</span>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: D.text1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                              {lang.language_name || lang.language}
+                              {isRepeat && (
+                                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: 'rgba(245,158,11,0.12)', color: '#d97706', border: '1px solid rgba(245,158,11,0.3)' }}>
+                                  Re-translated {lang.count}×
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 11, color: D.text3, marginTop: 2 }}>Last: {lastDate} · by {last?.user_name || '—'}</div>
+                          </div>
+                          <div style={{ fontSize: 11, color: D.text3, textAlign: 'right', flexShrink: 0 }}>
+                            <div style={{ fontWeight: 700, color: D.text2, fontSize: 15 }}>{lang.count}</div>
+                            <div>run{lang.count !== 1 ? 's' : ''}</div>
+                          </div>
+                          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={D.text3} strokeWidth={2} strokeLinecap="round" style={{ flexShrink: 0, transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>
+                            <polyline points="6 9 12 15 18 9"/>
+                          </svg>
+                        </div>
+                        {/* History table */}
+                        {isExpanded && (
+                          <div style={{ borderTop: `1px solid ${D.border}`, background: '#fafbfc' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                              <thead>
+                                <tr style={{ background: '#f1f5f9' }}>
+                                  {['#', 'Date & Time', 'By', 'API', 'Model'].map(h => (
+                                    <th key={h} style={{ padding: '7px 12px', textAlign: 'left', fontWeight: 600, color: D.text3, borderBottom: `1px solid ${D.border}` }}>{h}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lang.history.map((h, i) => (
+                                  <tr key={i} style={{ borderBottom: i < lang.history.length - 1 ? `1px solid ${D.border}` : 'none' }}>
+                                    <td style={{ padding: '7px 12px', color: D.text3 }}>{i + 1}</td>
+                                    <td style={{ padding: '7px 12px', color: D.text2, whiteSpace: 'nowrap' }}>
+                                      {new Date(h.timestamp).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}
+                                    </td>
+                                    <td style={{ padding: '7px 12px', color: D.text2 }}>{h.user_name}</td>
+                                    <td style={{ padding: '7px 12px', color: D.text2, textTransform: 'capitalize' }}>{h.api}</td>
+                                    <td style={{ padding: '7px 12px', color: D.text3, fontFamily: 'monospace', fontSize: 11, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.model}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${D.border}`, display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => { setReportModal(null); setExpandedLang(null); }} style={{ ...D.btnSecondary, fontSize: 13 }}>Close</button>
             </div>
           </div>
         </div>
