@@ -1,3 +1,4 @@
+const { WP, HEADERS } = require('../lib/wp-env');
 const axios = require('axios');
 
 module.exports = async function (fastify) {
@@ -7,7 +8,7 @@ module.exports = async function (fastify) {
     let wordpress = false;
     try {
       const res = await axios.get(
-        process.env.WP_URL + '/wp-json/btranslate/v1/health',
+        WP() + '/health',
         { timeout: 5000 }
       );
       wordpress = res.data && res.data.status === 'ok';

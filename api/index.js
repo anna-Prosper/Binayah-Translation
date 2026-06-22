@@ -14,8 +14,10 @@ fastify.register(require('./routes/languages'));
 fastify.register(require('./routes/models'));
 fastify.register(require('./routes/translation-log'));
 fastify.register(require('./routes/usage-log'));
+fastify.register(require('./routes/env'));
 initSuperAdmin().catch(e => console.error('[Users]', e.message));
 fastify.listen({ port: process.env.PORT || 4000, host: '0.0.0.0' }, (err) => {
   if (err) { fastify.log.error(err); process.exit(1); }
   console.log('API running on port ' + (process.env.PORT || 4000));
 });
+

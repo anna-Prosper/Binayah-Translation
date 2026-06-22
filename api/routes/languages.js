@@ -64,7 +64,7 @@ module.exports = async function(fastify) {
     const d = read(), { code, name, native, flag, dir, api, countries } = req.body;
     if (!code || !name) return reply.status(400).send({ error:'code and name required' });
     if (d.find(l => l.code === code)) return reply.status(409).send({ error:'Already exists' });
-    d.push({ code: code.toLowerCase().trim(), name, native: native||name, flag: flag||'\u{1F310}', dir: dir||'ltr', enabled: true, api: api||'deepseek', countries: countries||[] });
+    d.push({ code: code.toLowerCase().trim(), name, native: native||name, flag: flag||'\u{1F310}', dir: dir||'ltr', enabled: true, api: api||'', countries: countries||[] });
     save(d); return { success: true };
   });
 

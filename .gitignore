@@ -24,3 +24,15 @@ BACKUP_*/
 .DS_Store
 Thumbs.db
 npm-debug.log*
+
+# Runtime data files - not for version control
+api/translation-cache.json
+api/usage-stats.json
+api/users.json
+api/page-config.json
+api/language-config.json
+api/global-config.json
+
+# Environment config with API keys and site credentials - NEVER commit
+api/env-config.json
+api/sites.json

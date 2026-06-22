@@ -1,3 +1,4 @@
+const { WP, HEADERS } = require('../lib/wp-env');
 const fp = require("fastify-plugin")
 const axios = require("axios")
 const fs = require("fs")
@@ -17,8 +18,6 @@ function readLog() {
 }
 
 module.exports = fp(async function (fastify) {
-  const WP      = () => process.env.WP_URL + "/wp-json/btranslate/v1"
-  const HEADERS = () => ({ "X-Binayah-API-Key": process.env.WP_API_KEY })
   const USAGE   = path.join(__dirname, "../usage-stats.json")
 
   // GET /stats — global stats from WordPress

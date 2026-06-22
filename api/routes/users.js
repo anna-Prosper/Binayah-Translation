@@ -45,6 +45,7 @@ module.exports = async function(fastify) {
         models:            permissions?.models            || [],
         deepseek_models:   permissions?.deepseek_models   || [],
         openrouter_models: permissions?.openrouter_models || [],
+        sites:             permissions?.sites             || {},
       }
     };
     users.push(newUser);
@@ -69,6 +70,7 @@ module.exports = async function(fastify) {
         models:            permissions.models            ?? users[idx].permissions.models            ?? [],
         deepseek_models:   permissions.deepseek_models   ?? users[idx].permissions.deepseek_models   ?? [],
         openrouter_models: permissions.openrouter_models ?? users[idx].permissions.openrouter_models ?? [],
+        sites:             permissions.sites             ?? users[idx].permissions.sites             ?? {},
       };
     }
     write(users);
