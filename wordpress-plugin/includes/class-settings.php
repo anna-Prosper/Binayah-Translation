@@ -115,8 +115,8 @@ class BT_Settings {
                     <tr>
                         <th><label>Server URL</label></th>
                         <td>
-                            <input type="url" id="bt_server_url" value="<?php echo esc_attr( $server_url ?: 'http://64.226.98.189' ); ?>"
-                                class="regular-text" placeholder="http://64.226.98.189" />
+                            <input type="url" id="bt_server_url" value="<?php echo esc_attr( $server_url ?: 'https://translation.binayahhub.com' ); ?>"
+                                class="regular-text" placeholder="https://translation.binayahhub.com" />
                             <p class="description">URL of your Binayah Translate server (no trailing slash)</p>
                         </td>
                     </tr>

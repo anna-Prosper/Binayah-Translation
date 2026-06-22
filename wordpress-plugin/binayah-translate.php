@@ -2,13 +2,13 @@
 /**
  * Plugin Name: Binayah Translate
  * Description: Custom AI Translation System for Binayah.com
- * Version: 1.6.0
+ * Version: 1.7.3
  * Author: Binayah Team
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'BT_VERSION',    '1.6.0' );
+define( 'BT_VERSION',    '1.7.3' );
 define( 'BT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -17,6 +17,7 @@ require_once BT_PLUGIN_DIR . 'includes/class-languages.php';
 require_once BT_PLUGIN_DIR . 'includes/class-api.php';
 require_once BT_PLUGIN_DIR . 'includes/class-extractor.php';
 require_once BT_PLUGIN_DIR . 'includes/class-frontend.php';
+require_once BT_PLUGIN_DIR . 'includes/class-settings.php';
 
 // When plugin is activated → create DB table
 register_activation_hook( __FILE__, array( 'BT_Database', 'create_table' ) );
@@ -50,6 +51,7 @@ function bt_init() {
     BT_Languages::init();
     BT_API::init();
     BT_Frontend::init();
+    if ( is_admin() ) { BT_Settings::init(); }
 }
 
 /**

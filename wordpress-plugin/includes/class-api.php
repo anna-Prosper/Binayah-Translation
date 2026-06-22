@@ -89,6 +89,12 @@ class BT_API {
             'permission_callback' => array( __CLASS__, 'check_auth' ),
         ) );
 
+                register_rest_route( 'btranslate/v1', '/page/(?P<id>\d+)/urls', array(
+            'methods'             => 'GET',
+            'callback'            => array( __CLASS__, 'get_page_language_urls' ),
+            'permission_callback' => array( __CLASS__, 'check_api_key' ),
+        ) );
+
         register_rest_route( 'btranslate/v1', '/page/(?P<id>\d+)/translations', array(
             'methods'             => 'GET',
             'callback'            => array( __CLASS__, 'get_translations' ),
@@ -98,6 +104,16 @@ class BT_API {
         register_rest_route( 'btranslate/v1', '/stats', array(
             'methods'             => 'GET',
             'callback'            => array( __CLASS__, 'get_stats' ),
+            'permission_callback' => array( __CLASS__, 'check_auth' ),
+        ) );
+        register_rest_route( 'btranslate/v1', '/pages/search-by-url', array(
+            'methods'             => 'GET',
+            'callback'            => array( __CLASS__, 'search_by_url' ),
+            'permission_callback' => array( __CLASS__, 'check_auth' ),
+        ) );
+        register_rest_route( 'btranslate/v1', '/front-page', array(
+            'methods'             => 'GET',
+            'callback'            => array( __CLASS__, 'get_front_page' ),
             'permission_callback' => array( __CLASS__, 'check_auth' ),
         ) );
     }
@@ -237,6 +253,7 @@ class BT_API {
             'post_id'    => $post_id,
             'post_type'  => $post->post_type,
             'post_title' => $post->post_title,
+            'url'        => get_permalink( $post_id ),
             'fields'     => $fields,
         ) );
     }
@@ -265,6 +282,7 @@ class BT_API {
             $fields = BT_Extractor::extract( $post );
             return rest_ensure_response( array(
                 'post_id' => $post_id, 'post_title' => $post->post_title,
+                'url'     => get_permalink( $post_id ),
                 'fields'  => $fields, 'source' => 'extractor_fallback',
             ) );
         }
@@ -397,6 +415,75 @@ class BT_API {
 
     // ── Stats ────────────────────────────────────────────────────────────────
 
+
+
+    public static function get_front_page( $request ) {
+        global $wpdb;
+        $front_id = (int) get_option( 'page_on_front' );
+        if ( ! $front_id ) {
+            return rest_ensure_response( array( 'data' => array() ) );
+        }
+        $post = get_post( $front_id );
+        if ( ! $post ) {
+            return rest_ensure_response( array( 'data' => array() ) );
+        }
+        $table = BT_Database::table();
+        $translated_languages = $wpdb->get_col( $wpdb->prepare(
+            "SELECT DISTINCT language_code FROM {$table} WHERE post_id = %d AND status = 'done'",
+            $post->ID
+        ) );
+        return rest_ensure_response( array(
+            'data' => array( array(
+                'id'                   => $post->ID,
+                'post_id'              => $post->ID,
+                'post_type'            => $post->post_type,
+                'title'                => $post->post_title ?: '(no title)',
+                'slug'                 => $post->post_name,
+                'url'                  => get_permalink( $post->ID ),
+                'modified'             => $post->post_modified,
+                'translated_languages' => $translated_languages ?: array(),
+                'status'               => count( $translated_languages ) >= 10 ? 'complete'
+                                          : ( count( $translated_languages ) > 0 ? 'partial' : 'not_started' ),
+            ) ),
+        ) );
+    }
+
+    public static function search_by_url( $request ) {
+        global $wpdb;
+        $url    = sanitize_text_field( $request->get_param( 'url' ) ?: '' );
+        $parsed = wp_parse_url( $url );
+        $path   = isset( $parsed['path'] ) ? trim( $parsed['path'], '/' ) : '';
+        $parts  = explode( '/', $path );
+        if ( count( $parts ) > 1 && preg_match( '/^[a-z]{2,3}$/', $parts[0] ) ) {
+            array_shift( $parts );
+            $path = implode( '/', $parts );
+        }
+        $uris         = get_option( 'permalink-manager-uris', array() );
+        $matching_ids = array();
+        foreach ( $uris as $post_id => $uri ) {
+            if ( trim( $uri, '/' ) === $path ) { $matching_ids[] = (int) $post_id; }
+        }
+        if ( empty( $matching_ids ) && ! empty( $path ) ) {
+            $path_parts   = explode( '/', $path );
+            $last_segment = end( $path_parts );
+            foreach ( $uris as $post_id => $uri ) {
+                $uri_parts = explode( '/', trim( $uri, '/' ) );
+                if ( end( $uri_parts ) === $last_segment ) { $matching_ids[] = (int) $post_id; }
+            }
+        }
+        if ( empty( $matching_ids ) ) {
+            return rest_ensure_response( array( 'page' => 1, 'per_page' => 50, 'total' => 0, 'total_pages' => 0, 'post_type' => 'all', 'data' => array() ) );
+        }
+        $posts = get_posts( array( 'post_type' => 'any', 'post_status' => 'publish', 'post__in' => $matching_ids, 'orderby' => 'post__in', 'posts_per_page' => 50, 'no_found_rows' => true ) );
+        $table = BT_Database::table();
+        $data  = array();
+        foreach ( $posts as $post ) {
+            $translated_languages = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT language_code FROM {$table} WHERE post_id = %d AND status = 'done'", $post->ID ) );
+            $data[] = array( 'id' => $post->ID, 'post_id' => $post->ID, 'post_type' => $post->post_type, 'title' => $post->post_title ?: '(no title)', 'slug' => $post->post_name, 'url' => get_permalink( $post->ID ), 'modified' => $post->post_modified, 'translated_languages' => $translated_languages ?: array(), 'status' => count( $translated_languages ) >= 10 ? 'complete' : ( count( $translated_languages ) > 0 ? 'partial' : 'not_started' ) );
+        }
+        return rest_ensure_response( array( 'page' => 1, 'per_page' => 50, 'total' => count( $data ), 'total_pages' => 1, 'post_type' => 'all', 'data' => $data ) );
+    }
+
     public static function get_stats( $request ) {
         global $wpdb;
         $table     = BT_Database::table();
@@ -441,4 +528,40 @@ class BT_API {
             'api_key_set'  => (bool) get_option( 'bt_api_key' ),
         ) );
     }
+
+    public static function get_page_language_urls( $request ) {
+        $post_id  = (int) $request['id'];
+        $post     = get_post( $post_id );
+        if ( ! $post ) return new WP_Error( 'not_found', 'Post not found', array( 'status' => 404 ) );
+
+        $base_url = get_permalink( $post_id );
+        $urls     = array( 'default' => $base_url );
+
+        // Try WPML
+        if ( function_exists( 'apply_filters' ) && has_filter( 'wpml_active_languages' ) ) {
+            $active_langs = apply_filters( 'wpml_active_languages', null, array() );
+            if ( is_array( $active_langs ) ) {
+                foreach ( $active_langs as $lang_code => $lang_data ) {
+                    $translated_id = apply_filters( 'wpml_object_id', $post_id, $post->post_type, false, $lang_code );
+                    if ( $translated_id ) {
+                        $urls[ $lang_code ] = get_permalink( $translated_id );
+                    }
+                }
+            }
+        }
+
+        // Try Polylang
+        if ( function_exists( 'pll_languages_list' ) ) {
+            $langs = pll_languages_list( array( 'fields' => 'slug' ) );
+            foreach ( $langs as $lang_code ) {
+                $translated_id = pll_get_post( $post_id, $lang_code );
+                if ( $translated_id ) {
+                    $urls[ $lang_code ] = get_permalink( $translated_id );
+                }
+            }
+        }
+
+        return rest_ensure_response( array( 'post_id' => $post_id, 'base_url' => $base_url, 'urls' => $urls ) );
+    }
+
 }
