@@ -116,6 +116,11 @@ class BT_API {
             'callback'            => array( __CLASS__, 'get_front_page' ),
             'permission_callback' => array( __CLASS__, 'check_auth' ),
         ) );
+        register_rest_route( 'btranslate/v1', '/translations/lookup', array(
+            'methods'             => 'POST',
+            'callback'            => array( __CLASS__, 'lookup_translations' ),
+            'permission_callback' => array( __CLASS__, 'check_auth' ),
+        ) );
     }
 
     // ── Post types ──────────────────────────────────────────────────────────
@@ -391,6 +396,39 @@ class BT_API {
         }
 
         return rest_ensure_response( array( 'saved' => $saved, 'failed' => $failed, 'status' => 'success' ) );
+    }
+
+
+    // ── Cross-page translation lookup ────────────────────────────────────────
+
+    public static function lookup_translations( $request ) {
+        global $wpdb;
+        $body  = $request->get_json_params();
+        $lang  = sanitize_text_field( $body['lang'] ?? '' );
+        $texts = isset( $body['texts'] ) ? (array) $body['texts'] : array();
+
+        if ( ! $lang || empty( $texts ) ) {
+            return rest_ensure_response( (object) array() );
+        }
+
+        $table        = BT_Database::table();
+        $placeholders = implode( ',', array_fill( 0, count( $texts ), '%s' ) );
+        $query_args   = array_merge( array( $lang ), $texts );
+        $rows         = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT DISTINCT original_text, translated_text FROM {$table} WHERE language_code = %s AND original_text IN ({$placeholders}) AND status = 'done'",
+                ...$query_args
+            ),
+            ARRAY_A
+        );
+
+        $result = array();
+        foreach ( $rows as $row ) {
+            if ( ! isset( $result[ $row['original_text'] ] ) ) {
+                $result[ $row['original_text'] ] = $row['translated_text'];
+            }
+        }
+        return rest_ensure_response( $result );
     }
 
     // ── Translations for a post ──────────────────────────────────────────────
