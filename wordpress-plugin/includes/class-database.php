@@ -36,7 +36,8 @@ class BT_Database {
             UNIQUE KEY unique_translation (post_id, field_key(200), language_code),
             KEY idx_post_lang   (post_id, language_code),
             KEY idx_status_lang (status, language_code),
-            KEY idx_field_type  (field_type, language_code)
+            KEY idx_field_type  (field_type, language_code),
+            KEY idx_hash       (hash)
         ) {$charset};";
 
         // WordPress function that safely runs CREATE TABLE

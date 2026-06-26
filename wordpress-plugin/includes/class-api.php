@@ -5,6 +5,7 @@ class BT_API {
 
     public static function init() {
         add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
+        add_action( 'rest_api_init', array( 'BT_Database', 'ensure_indexes' ) );
         add_filter( 'rest_authentication_errors', array( __CLASS__, 'bypass_auth_for_our_routes' ), 20 );
 
         // Allow render bypass: when our API key is in a render header,
@@ -129,11 +130,21 @@ class BT_API {
         global $wpdb;
         $post_types = get_post_types( array( 'public' => true ), 'objects' );
         unset( $post_types['attachment'] );
-        $result = array();
+        $type_slugs   = array_keys( $post_types );
+        $placeholders = implode( ',', array_fill( 0, count( $type_slugs ), '%s' ) );
+        $count_rows   = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT post_type, COUNT(*) as cnt FROM {$wpdb->posts}
+                 WHERE post_status = 'publish' AND post_type IN ({$placeholders})
+                 GROUP BY post_type",
+                ...$type_slugs
+            ),
+            ARRAY_A
+        );
+        $count_map = array_column( $count_rows, 'cnt', 'post_type' );
+        $result    = array();
         foreach ( $post_types as $slug => $obj ) {
-            $count = (int) $wpdb->get_var( $wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s AND post_status = 'publish'", $slug
-            ) );
+            $count = (int) ( $count_map[ $slug ] ?? 0 );
             if ( $count === 0 ) continue;
             $result[] = array( 'slug' => $slug, 'label' => $obj->labels->name, 'count' => $count );
         }
@@ -210,22 +221,39 @@ class BT_API {
         } else {
             $posts = get_posts( $args );
 
-            $count_args                    = $args;
-            $count_args['fields']          = 'ids';
-            unset( $count_args['posts_per_page'], $count_args['offset'] );
-            $count_args['posts_per_page']  = -1;
-            $total                         = count( get_posts( $count_args ) );
-            $total_pages                   = (int) ceil( $total / $per_page );
+            $type_ph     = implode( ',', array_fill( 0, count( $type_list ), '%s' ) );
+            $total       = (int) $wpdb->get_var(
+                $wpdb->prepare(
+                    "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_status = 'publish' AND post_type IN ({$type_ph})",
+                    ...$type_list
+                )
+            );
+            $total_pages = (int) ceil( $total / $per_page );
         }
 
-        $table = BT_Database::table();
-        $data  = array();
+        $table    = BT_Database::table();
+        $data     = array();
+        $post_ids = wp_list_pluck( $posts, 'ID' );
+
+        // Batch-fetch all translated languages for all posts in one query
+        $langs_by_post = array();
+        if ( ! empty( $post_ids ) ) {
+            $id_ph     = implode( ',', array_fill( 0, count( $post_ids ), '%d' ) );
+            $lang_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT post_id, language_code FROM {$table}
+                     WHERE post_id IN ({$id_ph}) AND status = 'done'",
+                    ...$post_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( $lang_rows as $r ) {
+                $langs_by_post[ (int) $r['post_id'] ][] = $r['language_code'];
+            }
+        }
 
         foreach ( $posts as $post ) {
-            $translated_languages = $wpdb->get_col( $wpdb->prepare(
-                "SELECT DISTINCT language_code FROM {$table} WHERE post_id = %d AND status = 'done'",
-                $post->ID
-            ) );
+            $translated_languages = $langs_by_post[ $post->ID ] ?? array();
             $data[] = array(
                 'id'                   => $post->ID,
                 'post_id'              => $post->ID,
@@ -234,7 +262,7 @@ class BT_API {
                 'slug'                 => $post->post_name,
                 'url'                  => get_permalink( $post->ID ),
                 'modified'             => $post->post_modified,
-                'translated_languages' => $translated_languages ?: array(),
+                'translated_languages' => $translated_languages,
                 'status'               => count( $translated_languages ) >= 10 ? 'complete'
                                           : ( count( $translated_languages ) > 0 ? 'partial' : 'not_started' ),
             );
@@ -360,9 +388,8 @@ class BT_API {
         $post      = get_post( $post_id );
         $extracted = $post ? BT_Extractor::extract( $post ) : array();
 
-        $saved = 0; $failed = 0;
+        $batch = array();
         foreach ( $fields as $field_key => $translated_text ) {
-            // Get the actual original English text for this field
             if ( isset( $extracted[ $field_key ] ) ) {
                 $orig_data = $extracted[ $field_key ];
                 $original  = is_array( $orig_data ) ? ( $orig_data['value'] ?? '' ) : (string) $orig_data;
@@ -371,31 +398,27 @@ class BT_API {
                 $original = $post->post_title;
                 $ftype    = 'text';
             } elseif ( str_starts_with( $field_key, 'html:' ) ) {
-                // HTML-source fields: original_text is in the field key hint from translation server
                 $original = $body['originals'][ $field_key ] ?? '';
                 $ftype    = 'text';
             } else {
                 $original = '';
                 $ftype    = 'text';
             }
-
-            try {
-                BT_Database::save_translation(
-                    $post_id,
-                    sanitize_text_field( $field_key ),
-                    sanitize_text_field( $ftype ),
-                    $lang,
-                    $original,
-                    wp_kses_post( $translated_text ),
-                    $by
-                );
-                $saved++;
-            } catch ( Exception $e ) {
-                $failed++;
-            }
+            $batch[] = array(
+                'post_id'    => $post_id,
+                'field_key'  => sanitize_text_field( $field_key ),
+                'field_type' => sanitize_text_field( $ftype ),
+                'lang'       => $lang,
+                'original'   => $original,
+                'translated' => wp_kses_post( $translated_text ),
+                'by'         => $by,
+            );
         }
 
-        return rest_ensure_response( array( 'saved' => $saved, 'failed' => $failed, 'status' => 'success' ) );
+        BT_Database::save_translations_batch( $batch );
+        $saved = count( $batch );
+
+        return rest_ensure_response( array( 'saved' => $saved, 'failed' => 0, 'status' => 'success' ) );
     }
 
 
@@ -411,12 +434,16 @@ class BT_API {
             return rest_ensure_response( (object) array() );
         }
 
-        $table        = BT_Database::table();
-        $placeholders = implode( ',', array_fill( 0, count( $texts ), '%s' ) );
-        $query_args   = array_merge( array( $lang ), $texts );
+        $table    = BT_Database::table();
+        // Use hash index for fast LONGTEXT lookup instead of scanning original_text
+        $hashes      = array_map( 'md5', $texts );
+        $hash_to_text = array_combine( $hashes, $texts );
+        $placeholders = implode( ',', array_fill( 0, count( $hashes ), '%s' ) );
+        $query_args   = array_merge( array( $lang ), $hashes );
         $rows         = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT DISTINCT original_text, translated_text FROM {$table} WHERE language_code = %s AND original_text IN ({$placeholders}) AND status = 'done'",
+                "SELECT hash, translated_text FROM {$table}
+                 WHERE language_code = %s AND hash IN ({$placeholders}) AND status = 'done'",
                 ...$query_args
             ),
             ARRAY_A
@@ -424,8 +451,9 @@ class BT_API {
 
         $result = array();
         foreach ( $rows as $row ) {
-            if ( ! isset( $result[ $row['original_text'] ] ) ) {
-                $result[ $row['original_text'] ] = $row['translated_text'];
+            $original = $hash_to_text[ $row['hash'] ] ?? null;
+            if ( $original !== null && ! isset( $result[ $original ] ) ) {
+                $result[ $original ] = $row['translated_text'];
             }
         }
         return rest_ensure_response( $result );
@@ -440,7 +468,7 @@ class BT_API {
         $table   = BT_Database::table();
 
         $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT field_key, translated_text FROM {$table} WHERE post_id = %d AND language_code = %s",
+            "SELECT field_key, translated_text FROM {$table} WHERE post_id = %d AND language_code = %s AND status = 'done'",
             $post_id, $lang
         ), ARRAY_A );
 
@@ -513,11 +541,26 @@ class BT_API {
             return rest_ensure_response( array( 'page' => 1, 'per_page' => 50, 'total' => 0, 'total_pages' => 0, 'post_type' => 'all', 'data' => array() ) );
         }
         $posts = get_posts( array( 'post_type' => 'any', 'post_status' => 'publish', 'post__in' => $matching_ids, 'orderby' => 'post__in', 'posts_per_page' => 50, 'no_found_rows' => true ) );
-        $table = BT_Database::table();
-        $data  = array();
+        $table    = BT_Database::table();
+        $data     = array();
+        $post_ids = wp_list_pluck( $posts, 'ID' );
+        $langs_by_post = array();
+        if ( ! empty( $post_ids ) ) {
+            $id_ph = implode( ',', array_fill( 0, count( $post_ids ), '%d' ) );
+            $lang_rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT post_id, language_code FROM {$table} WHERE post_id IN ({$id_ph}) AND status = 'done'",
+                    ...$post_ids
+                ),
+                ARRAY_A
+            );
+            foreach ( $lang_rows as $r ) {
+                $langs_by_post[ (int) $r['post_id'] ][] = $r['language_code'];
+            }
+        }
         foreach ( $posts as $post ) {
-            $translated_languages = $wpdb->get_col( $wpdb->prepare( "SELECT DISTINCT language_code FROM {$table} WHERE post_id = %d AND status = 'done'", $post->ID ) );
-            $data[] = array( 'id' => $post->ID, 'post_id' => $post->ID, 'post_type' => $post->post_type, 'title' => $post->post_title ?: '(no title)', 'slug' => $post->post_name, 'url' => get_permalink( $post->ID ), 'modified' => $post->post_modified, 'translated_languages' => $translated_languages ?: array(), 'status' => count( $translated_languages ) >= 10 ? 'complete' : ( count( $translated_languages ) > 0 ? 'partial' : 'not_started' ) );
+            $translated_languages = $langs_by_post[ $post->ID ] ?? array();
+            $data[] = array( 'id' => $post->ID, 'post_id' => $post->ID, 'post_type' => $post->post_type, 'title' => $post->post_title ?: '(no title)', 'slug' => $post->post_name, 'url' => get_permalink( $post->ID ), 'modified' => $post->post_modified, 'translated_languages' => $translated_languages, 'status' => count( $translated_languages ) >= 10 ? 'complete' : ( count( $translated_languages ) > 0 ? 'partial' : 'not_started' ) );
         }
         return rest_ensure_response( array( 'page' => 1, 'per_page' => 50, 'total' => count( $data ), 'total_pages' => 1, 'post_type' => 'all', 'data' => $data ) );
     }
