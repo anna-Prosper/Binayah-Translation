@@ -240,7 +240,7 @@ class BT_API {
             $id_ph     = implode( ',', array_fill( 0, count( $post_ids ), '%d' ) );
             $lang_rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT post_id, language_code FROM {$table}
+                    "SELECT DISTINCT post_id, language_code FROM {$table}
                      WHERE post_id IN ({$id_ph}) AND status = 'done'",
                     ...$post_ids
                 ),
@@ -548,7 +548,7 @@ class BT_API {
             $id_ph = implode( ',', array_fill( 0, count( $post_ids ), '%d' ) );
             $lang_rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT post_id, language_code FROM {$table} WHERE post_id IN ({$id_ph}) AND status = 'done'",
+                    "SELECT DISTINCT post_id, language_code FROM {$table} WHERE post_id IN ({$id_ph}) AND status = 'done'",
                     ...$post_ids
                 ),
                 ARRAY_A
