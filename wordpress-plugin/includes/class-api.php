@@ -5,7 +5,6 @@ class BT_API {
 
     public static function init() {
         add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
-        add_action( 'rest_api_init', array( 'BT_Database', 'ensure_indexes' ) );
         add_filter( 'rest_authentication_errors', array( __CLASS__, 'bypass_auth_for_our_routes' ), 20 );
 
         // Allow render bypass: when our API key is in a render header,
