@@ -8,7 +8,7 @@ function decodeJwt(token: string) {
   } catch { return null; }
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Always allow static assets, API routes, login
