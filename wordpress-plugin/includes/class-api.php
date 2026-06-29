@@ -477,15 +477,25 @@ class BT_API {
         $table   = BT_Database::table();
 
         $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT field_key, translated_text FROM {$table} WHERE post_id = %d AND language_code = %s",
+            "SELECT field_key, translated_text, hash FROM {$table} WHERE post_id = %d AND language_code = %s",
             $post_id, $lang
         ), ARRAY_A );
 
-        $result = array();
+        $translations = array();
+        $hashes       = array();
         foreach ( $rows as $row ) {
-            $result[ $row['field_key'] ] = $row['translated_text'];
+            $translations[ $row['field_key'] ] = $row['translated_text'];
+            if ( ! empty( $row['hash'] ) ) {
+                $hashes[ $row['field_key'] ] = $row['hash'];
+            }
         }
-        return rest_ensure_response( $result );
+
+        // Return translations + hashes so the Node.js side can detect stale translations
+        // (source English changed since last translation run).
+        return rest_ensure_response( array(
+            'translations' => $translations,
+            'hashes'       => $hashes,
+        ) );
     }
 
     // ── Stats ────────────────────────────────────────────────────────────────
