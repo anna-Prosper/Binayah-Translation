@@ -16,6 +16,9 @@
     "react-dom": "19.2.4",
     "recharts": "^3.8.1"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
