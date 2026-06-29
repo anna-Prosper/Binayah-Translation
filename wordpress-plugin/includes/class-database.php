@@ -36,7 +36,8 @@ class BT_Database {
             UNIQUE KEY unique_translation (post_id, field_key(200), language_code),
             KEY idx_post_lang   (post_id, language_code),
             KEY idx_status_lang (status, language_code),
-            KEY idx_field_type  (field_type, language_code)
+            KEY idx_field_type  (field_type, language_code),
+            KEY idx_hash       (hash)
         ) {$charset};";
 
         // WordPress function that safely runs CREATE TABLE
@@ -114,4 +115,45 @@ class BT_Database {
         }
         return $result;
     }
+    // Batch insert/update many translations in one query
+    public static function save_translations_batch( array $rows ) {
+        global $wpdb;
+        if ( empty( $rows ) ) return;
+        $table = self::table();
+        $now   = current_time( 'mysql' );
+
+        // Chunk to avoid hitting MySQL max_allowed_packet
+        foreach ( array_chunk( $rows, 50 ) as $chunk ) {
+            $values       = array();
+            $placeholders = array();
+            foreach ( $chunk as $r ) {
+                $placeholders[] = "(%d, %s, %s, %s, %s, %s, %s, 'done', %s, %s)";
+                array_push( $values,
+                    (int) $r['post_id'],
+                    (string) $r['field_key'],
+                    (string) $r['field_type'],
+                    (string) $r['lang'],
+                    (string) $r['original'],
+                    (string) $r['translated'],
+                    (string) $r['by'],
+                    md5( (string) $r['original'] ),
+                    $now
+                );
+            }
+            $sql = "INSERT INTO {$table}
+                (post_id, field_key, field_type, language_code, original_text, translated_text,
+                 translated_by, status, hash, translated_at)
+                VALUES " . implode( ', ', $placeholders ) . "
+                ON DUPLICATE KEY UPDATE
+                    field_type      = VALUES(field_type),
+                    original_text   = VALUES(original_text),
+                    translated_text = VALUES(translated_text),
+                    translated_by   = VALUES(translated_by),
+                    status          = 'done',
+                    hash            = VALUES(hash),
+                    translated_at   = VALUES(translated_at)";
+            $wpdb->query( $wpdb->prepare( $sql, ...$values ) );
+        }
+    }
+
 }

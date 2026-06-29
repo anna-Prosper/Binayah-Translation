@@ -146,9 +146,12 @@ export default function PagesPage() {
           const q = search.toLowerCase();
           merged.sort((a, b) => relevanceScore(b, q) - relevanceScore(a, q));
         }
-        setPages(merged);
-        setTotalPages(1);
-        setTotal(merged.length);
+        const _totalCount = merged.length;
+        const _totalPgs   = Math.max(1, Math.ceil(_totalCount / PER_PAGE));
+        const _sliced     = merged.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+        setPages(_sliced);
+        setTotalPages(_totalPgs);
+        setTotal(_totalCount);
       } else {
         // ── BROWSE MODE: use active type filters with pagination ──
         const _effective = _allowed.length
@@ -365,12 +368,19 @@ export default function PagesPage() {
     const t = (p.title || '').toLowerCase();
     const s = (p.slug  || '').toLowerCase();
     const u = (p.url   || '').toLowerCase();
-    if (t === q)            return 100;
-    if (t.startsWith(q))    return 90;
-    if (t.includes(q))      return 80;
-    if (s === q)            return 70;
-    if (s.startsWith(q))    return 60;
-    if (s.includes(q) || u.includes(q)) return 50;
+    // Exact matches
+    if (t === q)                         return 100;
+    if (t.startsWith(q))                 return 92;
+    if (t.includes(q))                   return 82;
+    if (s === q)                         return 72;
+    if (s.startsWith(q))                 return 62;
+    if (s.includes(q) || u.includes(q))  return 52;
+    // Multi-word: all words present in title scores high even if not contiguous
+    const words = q.split(/\s+/).filter(Boolean);
+    if (words.length > 1 && words.every(w => t.includes(w))) return 75;
+    if (words.length > 1 && words.every(w => s.includes(w) || u.includes(w))) return 45;
+    // Partial word match in title
+    if (words.some(w => t.includes(w))) return 30;
     return 10;
   }
 

@@ -8,7 +8,7 @@ import { isAdmin, getAllowedApi, isApiAllowed, getAllowedModelsForApi } from '..
 
 interface Language {
   code: string; name: string; flag: string; native?: string; dir?: string;
-  api?: string; model?: string; countries?: string[]; enabled?: boolean;
+  api?: string; model?: string; countries?: string[]; enabled?: boolean; prompt?: string; word_cache?: boolean;
 }
 interface Stats { by_language: Record<string, number>; total_posts: number; }
 
@@ -121,7 +121,7 @@ const COUNTRY_OPTIONS = [
   { code: 'CZ', name: 'Czech Republic' },
 ];
 
-const emptyForm = { code: '', api: '', model: '', countries: [] as string[], enabled: true, prompt: '' };
+const emptyForm = { code: '', api: '', model: '', countries: [] as string[], enabled: true, prompt: '', word_cache: true };
 
 function authHeaders() {
   return {
@@ -215,6 +215,7 @@ export default function LanguagesPage() {
       code: form.code, name: known?.name || form.code, flag: known?.flag || '',
       dir: known?.dir || 'ltr', api: form.api, model: form.model,
       countries: form.countries, enabled: form.enabled, prompt: form.prompt || '',
+      word_cache: form.word_cache !== false,
     };
     try {
       const res = await fetch('/api/languages/config', {
@@ -228,7 +229,7 @@ export default function LanguagesPage() {
 
   async function handleEdit(e: React.FormEvent) {
     e.preventDefault(); if (!editLang) return; setSaving(true);
-    const payload = { ...editLang, api: form.api, model: form.model, countries: form.countries, enabled: form.enabled, prompt: form.prompt || '' };
+    const payload = { ...editLang, api: form.api, model: form.model, countries: form.countries, enabled: form.enabled, prompt: form.prompt || '', word_cache: form.word_cache !== false };
     try {
       const res = await fetch(`/api/languages/config/${editLang.code}`, {
         method: 'PUT', headers: authHeaders(), body: JSON.stringify(payload),
@@ -256,7 +257,7 @@ export default function LanguagesPage() {
     const allowedMdls = isRestricted ? getAllowedModelsForApi(resolvedApi as 'deepseek'|'openrouter') : [];
     let resolvedMdl = lang.model || globalCfg.model;
     if (allowedMdls.length && !allowedMdls.includes(resolvedMdl)) resolvedMdl = allowedMdls[0];
-    setForm({ code: lang.code, api: resolvedApi, model: resolvedMdl, countries, enabled: lang.enabled !== false, prompt: (lang as any).prompt || '' });
+    setForm({ code: lang.code, api: resolvedApi, model: resolvedMdl, countries, enabled: lang.enabled !== false, prompt: (lang as any).prompt || "", word_cache: lang.word_cache !== false });
     setEditLang(lang);
   }
 
@@ -432,10 +433,20 @@ export default function LanguagesPage() {
                 />
               </div>
 
-              <div style={{ marginBottom: 20 }}>
+              <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                   <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} style={{ accentColor: D.brand, width: 15, height: 15 }} />
                   <span style={{ fontSize: 13, color: D.text2 }}>Enable this language</span>
+                </label>
+              </div>
+
+              <div style={{ marginBottom: 20, padding: '10px 12px', background: 'rgba(0,77,66,0.04)', border: '1px solid rgba(0,77,66,0.12)', borderRadius: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={form.word_cache !== false} onChange={e => setForm(f => ({ ...f, word_cache: e.target.checked }))} style={{ accentColor: D.brand, width: 15, height: 15, marginTop: 2, flexShrink: 0 }} />
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: D.text1 }}>Use shared word cache</span>
+                    <div style={{ fontSize: 11, color: D.text3, marginTop: 2 }}>When enabled, already-translated words are reused across pages. Disable for languages like Russian, Polish, German where word endings change by grammar context.</div>
+                  </div>
                 </label>
               </div>
 
@@ -493,10 +504,20 @@ export default function LanguagesPage() {
                 />
               </div>
 
-              <div style={{ marginBottom: 20 }}>
+              <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                   <input type="checkbox" checked={form.enabled} onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))} style={{ accentColor: D.brand, width: 15, height: 15 }} />
                   <span style={{ fontSize: 13, color: D.text2 }}>Language enabled</span>
+                </label>
+              </div>
+
+              <div style={{ marginBottom: 20, padding: '10px 12px', background: 'rgba(0,77,66,0.04)', border: '1px solid rgba(0,77,66,0.12)', borderRadius: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={form.word_cache !== false} onChange={e => setForm(f => ({ ...f, word_cache: e.target.checked }))} style={{ accentColor: D.brand, width: 15, height: 15, marginTop: 2, flexShrink: 0 }} />
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: D.text1 }}>Use shared word cache</span>
+                    <div style={{ fontSize: 11, color: D.text3, marginTop: 2 }}>When enabled, already-translated words are reused across pages. Disable for languages like Russian, Polish, German where word endings change by grammar context.</div>
+                  </div>
                 </label>
               </div>
 

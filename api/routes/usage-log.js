@@ -129,7 +129,7 @@ module.exports = async function (fastify) {
     const post_id = parseInt(req.query.post_id || '0', 10);
     if (!post_id) return reply.status(400).send({ error: 'post_id required' });
 
-    let logs = readLog().filter(e => e.post_id === post_id && (e.tokens_used || 0) > 0);
+    let logs = readLog().filter(e => e.post_id === post_id);
     if (!isSuperAdmin) logs = logs.filter(e => (e.user_id || '') === userId);
 
     const summary = {

@@ -116,6 +116,11 @@ class BT_API {
             'callback'            => array( __CLASS__, 'get_front_page' ),
             'permission_callback' => array( __CLASS__, 'check_auth' ),
         ) );
+        register_rest_route( 'btranslate/v1', '/translations/lookup', array(
+            'methods'             => 'POST',
+            'callback'            => array( __CLASS__, 'lookup_translations' ),
+            'permission_callback' => array( __CLASS__, 'check_auth' ),
+        ) );
     }
 
     // ── Post types ──────────────────────────────────────────────────────────
@@ -164,21 +169,47 @@ class BT_API {
         );
         // ── Execute query: title + slug (URL) search support ───────────────
         if ( ! empty( $search ) ) {
-            // 1. Title matches via WP native search
-            $title_args               = array_merge( $args, array( 's' => $search, 'fields' => 'ids', 'posts_per_page' => -1, 'offset' => 0 ) );
-            $title_ids                = array_map( 'intval', get_posts( $title_args ) );
-
-            // 2. Slug / URL matches via direct SQL
-            $like              = '%' . $wpdb->esc_like( $search ) . '%';
             $type_placeholders = implode( ',', array_fill( 0, count( $type_list ), '%s' ) );
-            $slug_ids          = array_map( 'intval', (array) $wpdb->get_col(
+            $like_exact   = $wpdb->esc_like( $search );
+            $like_sw      = $like_exact . '%';
+            $like_contain = '%' . $like_exact . '%';
+
+            // 1a. Exact title match (case-insensitive)
+            $exact_ids = array_map( 'intval', (array) $wpdb->get_col(
                 $wpdb->prepare(
-                    "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ($type_placeholders) AND post_status = 'publish' AND post_name LIKE %s",
-                    array_merge( $type_list, array( $like ) )
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ($type_placeholders) AND post_status = 'publish' AND LOWER(post_title) = LOWER(%s) ORDER BY post_modified DESC",
+                    array_merge( $type_list, array( $search ) )
                 )
             ) );
 
-            // 3. Merge: title matches first, then slug-only matches (preserves relevance order)
+            // 1b. Title starts with search term
+            $sw_ids = array_map( 'intval', (array) $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ($type_placeholders) AND post_status = 'publish' AND post_title LIKE %s ORDER BY post_modified DESC",
+                    array_merge( $type_list, array( $like_sw ) )
+                )
+            ) );
+
+            // 1c. Title contains search term
+            $contains_ids = array_map( 'intval', (array) $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ($type_placeholders) AND post_status = 'publish' AND post_title LIKE %s ORDER BY post_modified DESC",
+                    array_merge( $type_list, array( $like_contain ) )
+                )
+            ) );
+
+            // Merge title results in relevance order: exact → starts-with → contains
+            $title_ids = array_values( array_unique( array_merge( $exact_ids, $sw_ids, $contains_ids ) ) );
+
+            // 2. Slug / URL matches via direct SQL
+            $slug_ids = array_map( 'intval', (array) $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT ID FROM {$wpdb->posts} WHERE post_type IN ($type_placeholders) AND post_status = 'publish' AND post_name LIKE %s",
+                    array_merge( $type_list, array( $like_contain ) )
+                )
+            ) );
+
+            // 3. Merge: title matches first (in relevance order), then slug-only matches
             $slug_only = array_values( array_diff( $slug_ids, $title_ids ) );
             $all_ids   = array_values( array_unique( array_merge( $title_ids, $slug_only ) ) );
 
@@ -310,14 +341,25 @@ class BT_API {
         $html = preg_replace( '/<noscript[^>]*>.*?<\/noscript>/si', '', $html );
         $html = preg_replace( '/<!--.*?-->/s',                     '', $html );
 
+        // Extract placeholder attributes from inputs/textareas
+        preg_match_all( '/\\bplaceholder=[\"\']([^\"\']{3,})[\"\']/', $html, $ph_matches );
+        // Extract value from submit/button inputs
+        preg_match_all( '/<input[^>]+type=[\"\'](?:submit|button)[\"\'][^>]+value=[\"\']([^\"\']{3,})[\"\']/', $html, $sv1 );
+        preg_match_all( '/<input[^>]+value=[\"\']([^\"\']{3,})[\"\'][^>]+type=[\"\'](?:submit|button)[\"\']/', $html, $sv2 );
+        // Extract aria-label from buttons/links
+        preg_match_all( '/\\baria-label=[\"\']([^\"\']{3,})[\"\']/', $html, $al_matches );
+
         // Extract text content between tags
         preg_match_all( '/>([^<]{3,})</u', $html, $matches );
+
+        // Merge: attribute texts first, then text nodes
+        $all_texts = array_merge( $ph_matches[1], $sv1[1], $sv2[1], $al_matches[1], $matches[1] );
 
         $fields = array();
         $seen   = array();
         $i      = 0;
 
-        foreach ( $matches[1] as $raw ) {
+        foreach ( $all_texts as $raw ) {
             $text = trim( html_entity_decode( $raw, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
             if ( mb_strlen( $text ) < 3 )                               continue;
             if ( is_numeric( $text ) )                                   continue;
@@ -393,6 +435,39 @@ class BT_API {
         return rest_ensure_response( array( 'saved' => $saved, 'failed' => $failed, 'status' => 'success' ) );
     }
 
+
+    // ── Cross-page translation lookup ────────────────────────────────────────
+
+    public static function lookup_translations( $request ) {
+        global $wpdb;
+        $body  = $request->get_json_params();
+        $lang  = sanitize_text_field( $body['lang'] ?? '' );
+        $texts = isset( $body['texts'] ) ? (array) $body['texts'] : array();
+
+        if ( ! $lang || empty( $texts ) ) {
+            return rest_ensure_response( (object) array() );
+        }
+
+        $table        = BT_Database::table();
+        $placeholders = implode( ',', array_fill( 0, count( $texts ), '%s' ) );
+        $query_args   = array_merge( array( $lang ), $texts );
+        $rows         = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT DISTINCT original_text, translated_text FROM {$table} WHERE language_code = %s AND original_text IN ({$placeholders}) AND status = 'done'",
+                ...$query_args
+            ),
+            ARRAY_A
+        );
+
+        $result = array();
+        foreach ( $rows as $row ) {
+            if ( ! isset( $result[ $row['original_text'] ] ) ) {
+                $result[ $row['original_text'] ] = $row['translated_text'];
+            }
+        }
+        return rest_ensure_response( $result );
+    }
+
     // ── Translations for a post ──────────────────────────────────────────────
 
     public static function get_translations( $request ) {
@@ -402,15 +477,25 @@ class BT_API {
         $table   = BT_Database::table();
 
         $rows = $wpdb->get_results( $wpdb->prepare(
-            "SELECT field_key, translated_text FROM {$table} WHERE post_id = %d AND language_code = %s",
+            "SELECT field_key, translated_text, hash FROM {$table} WHERE post_id = %d AND language_code = %s",
             $post_id, $lang
         ), ARRAY_A );
 
-        $result = array();
+        $translations = array();
+        $hashes       = array();
         foreach ( $rows as $row ) {
-            $result[ $row['field_key'] ] = $row['translated_text'];
+            $translations[ $row['field_key'] ] = $row['translated_text'];
+            if ( ! empty( $row['hash'] ) ) {
+                $hashes[ $row['field_key'] ] = $row['hash'];
+            }
         }
-        return rest_ensure_response( $result );
+
+        // Return translations + hashes so the Node.js side can detect stale translations
+        // (source English changed since last translation run).
+        return rest_ensure_response( array(
+            'translations' => $translations,
+            'hashes'       => $hashes,
+        ) );
     }
 
     // ── Stats ────────────────────────────────────────────────────────────────
