@@ -121,6 +121,7 @@ class BT_Extractor {
      * Repeater widgets: widget_type => array( repeater_setting_key => array( item_text_keys ) )
      */
     private static $elementor_repeater_keys = array(
+        'form'                 => array( 'form_fields' => array( 'field_label', 'placeholder', 'acceptance_text' ) ),
         'accordion'            => array( 'tabs'           => array( 'tab_title', 'tab_content' ) ),
         'toggle'               => array( 'tabs'           => array( 'tab_title', 'tab_content' ) ),
         'tabs'                 => array( 'tabs'           => array( 'tab_title', 'tab_content' ) ),

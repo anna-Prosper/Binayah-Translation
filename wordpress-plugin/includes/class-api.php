@@ -342,14 +342,25 @@ class BT_API {
         $html = preg_replace( '/<noscript[^>]*>.*?<\/noscript>/si', '', $html );
         $html = preg_replace( '/<!--.*?-->/s',                     '', $html );
 
+        // Extract placeholder attributes from inputs/textareas
+        preg_match_all( '/\\bplaceholder=[\"\']([^\"\']{3,})[\"\']/', $html, $ph_matches );
+        // Extract value from submit/button inputs
+        preg_match_all( '/<input[^>]+type=[\"\'](?:submit|button)[\"\'][^>]+value=[\"\']([^\"\']{3,})[\"\']/', $html, $sv1 );
+        preg_match_all( '/<input[^>]+value=[\"\']([^\"\']{3,})[\"\'][^>]+type=[\"\'](?:submit|button)[\"\']/', $html, $sv2 );
+        // Extract aria-label from buttons/links
+        preg_match_all( '/\\baria-label=[\"\']([^\"\']{3,})[\"\']/', $html, $al_matches );
+
         // Extract text content between tags
         preg_match_all( '/>([^<]{3,})</u', $html, $matches );
+
+        // Merge: attribute texts first, then text nodes
+        $all_texts = array_merge( $ph_matches[1], $sv1[1], $sv2[1], $al_matches[1], $matches[1] );
 
         $fields = array();
         $seen   = array();
         $i      = 0;
 
-        foreach ( $matches[1] as $raw ) {
+        foreach ( $all_texts as $raw ) {
             $text = trim( html_entity_decode( $raw, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
             if ( mb_strlen( $text ) < 3 )                               continue;
             if ( is_numeric( $text ) )                                   continue;
