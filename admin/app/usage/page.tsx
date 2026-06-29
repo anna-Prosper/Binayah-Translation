@@ -563,25 +563,32 @@ export default function UsagePage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {pageStats.jobs.filter(j => (j.tokens_used||0) > 0).map((j,i) => {
+                        {pageStats.jobs.map((j,i) => {
                           const lg = (j.language||'').toLowerCase();
                           const viewUrl = pageUrls[lg] || pageUrls['default'] || pageModal.url || '';
+                          const isCached = (j.tokens_used||0) === 0;
                           return (
                           <tr key={j.id || i} style={{ background: i%2===0?'#fff':'#fafbfc' }}>
                             <td style={{ padding: '7px 12px', fontSize: 11, color: D.text3, whiteSpace: 'nowrap', borderBottom: `1px solid ${D.border}` }}>{fmt(j.timestamp)}</td>
                             <td style={{ padding: '7px 12px', fontWeight: 700, fontSize: 12, color: D.brand, textTransform: 'uppercase', borderBottom: `1px solid ${D.border}` }}>{j.language}</td>
                             <td style={{ padding: '7px 12px', borderBottom: `1px solid ${D.border}` }}>
-                              <Badge text={j.api||'?'} color={apiColor(j.api)} />
+                              {isCached
+                                ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 4, background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0' }}>CACHED</span>
+                                : <Badge text={j.api||'?'} color={apiColor(j.api)} />}
                             </td>
-                            <td style={{ padding: '7px 12px', fontSize: 11, color: D.text3, fontFamily: 'monospace', borderBottom: `1px solid ${D.border}` }}>{modelShort(j.model)}</td>
+                            <td style={{ padding: '7px 12px', fontSize: 11, color: D.text3, fontFamily: 'monospace', borderBottom: `1px solid ${D.border}` }}>{isCached ? '—' : modelShort(j.model)}</td>
                             <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 600, fontSize: 12, borderBottom: `1px solid ${D.border}` }}>{(j.fields_count||0).toLocaleString()}</td>
                             <td style={{ padding: '7px 12px', textAlign: 'right', fontSize: 12, borderBottom: `1px solid ${D.border}` }}>
-                              <span style={{ fontWeight: 600, color: D.text1 }}>{j.tokens_used.toLocaleString()}</span>
+                              {isCached
+                                ? <span style={{ fontSize: 10, color: '#16a34a', fontWeight: 600 }}>0 (cached)</span>
+                                : <span style={{ fontWeight: 600, color: D.text1 }}>{(j.tokens_used||0).toLocaleString()}</span>}
                             </td>
                             <td style={{ padding: '7px 12px', textAlign: 'right', fontSize: 11, fontFamily: 'monospace', borderBottom: `1px solid ${D.border}` }}>
-                              {(() => { const cost = calcCost(j.model, j.input_tokens||0, j.output_tokens||0, pricing); return cost !== null
-                                ? <span style={{ color: '#059669', fontWeight: 600 }}>{fmtCost(cost)}</span>
-                                : <span style={{ color: D.text3 }}>—</span>; })()}
+                              {isCached
+                                ? <span style={{ color: '#16a34a', fontWeight: 600 }}>$0.000000</span>
+                                : (() => { const cost = calcCost(j.model, j.input_tokens||0, j.output_tokens||0, pricing); return cost !== null
+                                  ? <span style={{ color: '#059669', fontWeight: 600 }}>{fmtCost(cost)}</span>
+                                  : <span style={{ color: D.text3 }}>—</span>; })()}
                             </td>
                             {_isSuperAdmin && <td style={{ padding: '7px 12px', fontSize: 12, color: D.text2, borderBottom: `1px solid ${D.border}` }}>{j.user_name||'---'}</td>}
                             <td style={{ padding: '7px 12px', borderBottom: `1px solid ${D.border}` }}>
@@ -600,7 +607,7 @@ export default function UsagePage() {
                             </td>
                           </tr>
                         );})}
-                        {pageStats.jobs.filter(j => (j.tokens_used||0) > 0).length === 0 && (
+                        {pageStats.jobs.length === 0 && (
                           <tr><td colSpan={_isSuperAdmin?9:8} style={{ padding: 24, textAlign: 'center', color: D.text3, fontSize: 13 }}>No translation records found</td></tr>
                         )}
                       </tbody>
