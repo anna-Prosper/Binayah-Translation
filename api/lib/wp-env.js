@@ -1,7 +1,7 @@
-const fs   = require('fs');
-const path = require('path');
+const fs      = require('fs');
+const dataDir = require('./data-dir');
 
-const CONFIG_PATH = path.join(__dirname, '../env-config.json');
+const CONFIG_PATH = dataDir('env-config.json');
 
 function getActiveConfig() {
   try {

@@ -1,9 +1,9 @@
 'use strict';
-const fs   = require('fs');
-const path = require('path');
-const jwt  = require('jsonwebtoken');
+const fs      = require('fs');
+const jwt     = require('jsonwebtoken');
+const dataDir = require('../lib/data-dir');
 
-const CONFIG_PATH = path.join(__dirname, '../env-config.json');
+const CONFIG_PATH = dataDir('env-config.json');
 
 function readConfig() {
   try { return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); }

@@ -1,7 +1,7 @@
 'use strict';
-const jwt  = require('jsonwebtoken');
-const path = require('path');
-const fs   = require('fs');
+const jwt     = require('jsonwebtoken');
+const fs      = require('fs');
+const dataDir = require('../lib/data-dir');
 const { read, write, byId, hash, safe, isSuperAdmin } = require('../lib/users');
 
 function guard(req, reply) {
@@ -14,7 +14,7 @@ function guard(req, reply) {
   } catch { reply.status(401).send({error:'Invalid token'}); return null; }
 }
 
-const LOG = path.join(__dirname, '../translation-log.json');
+const LOG = dataDir('translation-log.json');
 function readLog() { try { return JSON.parse(fs.readFileSync(LOG,'utf8')); } catch { return []; } }
 
 module.exports = async function(fastify) {

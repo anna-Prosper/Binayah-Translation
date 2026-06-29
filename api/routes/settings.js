@@ -1,10 +1,11 @@
-const fs = require('fs');
-const path = require('path');
-const axios = require('axios');
+const fs      = require('fs');
+const path    = require('path');
+const axios   = require('axios');
+const dataDir = require('../lib/data-dir');
 
 module.exports = async function (fastify) {
   const envPath       = path.join(__dirname, '../.env');
-  const globalCfgPath = path.join(__dirname, '../global-config.json');
+  const globalCfgPath = dataDir('global-config.json');
 
   function getEnvVal(key) {
     const env = fs.readFileSync(envPath, 'utf8');

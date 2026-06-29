@@ -1,9 +1,9 @@
 'use strict';
-const fs     = require('fs');
-const path   = require('path');
-const crypto = require('crypto');
+const fs      = require('fs');
+const crypto  = require('crypto');
+const dataDir = require('./data-dir');
 
-const FREQ_PATH = path.join(__dirname, '../string-frequency.json');
+const FREQ_PATH = dataDir('string-frequency.json');
 
 let _mem   = null;
 let _dirty = false;

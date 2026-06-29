@@ -1,9 +1,9 @@
 'use strict';
-const fs     = require('fs');
-const path   = require('path');
-const crypto = require('crypto');
+const fs      = require('fs');
+const crypto  = require('crypto');
+const dataDir = require('./data-dir');
 
-const CACHE_PATH = path.join(__dirname, '../translation-cache.json');
+const CACHE_PATH = dataDir('translation-cache.json');
 
 // In-memory cache — loaded once, written back after each save
 let _mem  = null;

@@ -1,8 +1,8 @@
 'use strict';
-const fs   = require('fs');
-const path = require('path');
-const jwt  = require('jsonwebtoken');
-const CFG  = path.join(__dirname, '../language-config.json');
+const fs      = require('fs');
+const jwt     = require('jsonwebtoken');
+const dataDir = require('../lib/data-dir');
+const CFG     = dataDir('language-config.json');
 
 const read  = () => { try { return JSON.parse(fs.readFileSync(CFG,'utf8')); } catch { return []; } };
 const save  = (d) => fs.writeFileSync(CFG, JSON.stringify(d, null, 2));

@@ -1,9 +1,9 @@
 'use strict';
-const fs     = require('fs');
-const path   = require('path');
-const bcrypt = require('bcryptjs');
+const fs      = require('fs');
+const bcrypt  = require('bcryptjs');
+const dataDir = require('./data-dir');
 
-const FILE = path.join(__dirname, '../users.json');
+const FILE = dataDir('users.json');
 
 function read()          { try { return JSON.parse(fs.readFileSync(FILE,'utf8')); } catch { return []; } }
 function write(users)    { fs.writeFileSync(FILE, JSON.stringify(users, null, 2)); }

@@ -14,14 +14,14 @@ function md5(text) { return crypto.createHash('md5').update(String(text)).digest
 // (header, footer, nav) rather than page-specific body content.
 const MORPHOLOGICALLY_COMPLEX = new Set(['ru', 'de']);
 const GLOBAL_THRESHOLD = 3;
-const fs    = require('fs');
-const path  = require('path');
+const fs      = require('fs');
+const dataDir = require('../lib/data-dir');
 
-const CFG        = path.join(__dirname, '../language-config.json');
-const USAGE      = path.join(__dirname, '../usage-stats.json');
-const GLOBAL_CFG = path.join(__dirname, '../global-config.json');
-const PAGE_CFG   = path.join(__dirname, '../page-config.json');
-const TRANS_LOG  = path.join(__dirname, '../translation-log.json');
+const CFG        = dataDir('language-config.json');
+const USAGE      = dataDir('usage-stats.json');
+const GLOBAL_CFG = dataDir('global-config.json');
+const PAGE_CFG   = dataDir('page-config.json');
+const TRANS_LOG  = dataDir('translation-log.json');
 
 const readCfg     = () => { try { return JSON.parse(fs.readFileSync(CFG,'utf8')); } catch { return []; } };
 const readGlobal  = () => { try { return JSON.parse(fs.readFileSync(GLOBAL_CFG,'utf8')); } catch { return {api:'deepseek',model:'deepseek-chat'}; } };

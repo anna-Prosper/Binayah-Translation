@@ -1,0 +1,47 @@
+services:
+  # ── Translation API (Fastify) ───────────────────────────────────────────────
+  - type: web
+    name: binayah-translation-api
+    runtime: node
+    rootDir: api
+    buildCommand: npm install
+    startCommand: node index.js
+    healthCheckPath: /health
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: DATA_DIR
+        value: /data
+      - key: NODE_ENV
+        value: production
+      # Set these in the Render dashboard — do NOT commit values
+      - key: ADMIN_SECRET
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      # WordPress site is registered via /sites/register endpoint after deploy
+      # WP_URL and WP_API_KEY are stored in /data/env-config.json (persistent disk)
+
+  # ── Admin UI (Next.js) ─────────────────────────────────────────────────────
+  - type: web
+    name: binayah-translation-admin
+    runtime: node
+    rootDir: admin
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          name: binayah-translation-api
+          type: web
+          property: host
