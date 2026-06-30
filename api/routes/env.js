@@ -61,9 +61,11 @@ module.exports = async function(fastify) {
     const cfg = readConfig();
     if (!cfg.sites) cfg.sites = {};
 
-    let envKey = 'live';
-    if (site_url.includes('staging') || site_url.includes('temp') || site_url.includes('test')) {
-      envKey = 'staging';
+    let envKey = req.body.site_id || 'live';
+    if (!req.body.site_id) {
+      if (site_url.includes('staging') || site_url.includes('temp') || site_url.includes('test')) {
+        envKey = 'staging';
+      }
     }
 
     cfg.sites[envKey] = {
