@@ -200,6 +200,26 @@ class BT_Extractor {
     }
 
     /**
+     * Decide the stored value + type for a raw setting string.
+     * If the raw value contains inline formatting/link tags, preserve those tags
+     * (keeping only a safe inline whitelist) so the stored original matches the
+     * rendered HTML for str_replace. Otherwise store plain stripped text.
+     * Only affects fields that actually contain inline HTML — plain fields are
+     * unchanged, so existing translations are not invalidated.
+     */
+    private static function value_and_type( $raw ) {
+        $raw      = (string) $raw;
+        $stripped = trim( wp_strip_all_tags( $raw ) );
+        if ( preg_match( '/<(a|strong|em|b|i|u|span|mark|sup|sub|br)\b/i', $raw ) ) {
+            // Keep inline tags (with attributes) but drop block/script/style markup.
+            $html = trim( strip_tags( $raw, '<a><strong><em><b><i><u><span><mark><sup><sub><br>' ) );
+            // Collapse the runs of whitespace WordPress normalises when rendering.
+            if ( $html !== '' ) return array( 'value' => $html, 'type' => 'html' );
+        }
+        return array( 'value' => $stripped, 'type' => 'text' );
+    }
+
+    /**
      * Generic sweep of ALL settings of a widget to catch text in widget types
      * that are not in the hardcoded whitelist.
      * Only adds keys that haven't already been extracted by the whitelist step.
@@ -273,10 +293,7 @@ class BT_Extractor {
                             $clean = trim( wp_strip_all_tags( $settings[ $key ] ) );
                             if ( self::looks_like_real_text( $clean ) ) {
                                 $field_key = 'elementor:' . $el_id . ':' . $widget_type . ':' . $key;
-                                $fields[ $field_key ] = array(
-                                    'value' => $clean,
-                                    'type'  => 'text',
-                                );
+                                $fields[ $field_key ] = self::value_and_type( $settings[ $key ] );
                             }
                         }
                     }
