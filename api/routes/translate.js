@@ -769,7 +769,11 @@ module.exports = async function(fastify) {
           {headers:{Authorization:'Bearer '+process.env.DEEPSEEK_API_KEY},timeout:60000});
         raw = r.data.choices[0].message.content; usage = r.data.usage||{};
       }
-      return { ok:true, model:m, raw, usage, systemPromptPreview: systemPrompt.slice(0,120) };
+      // Also run the REAL translateBatch to see what the job path produces
+      let batchMap = null, batchErr = null;
+      try { const br = await translateBatch(texts, l, a, m, systemPrompt); batchMap = br.map; }
+      catch(be){ batchErr = be.message; }
+      return { ok:true, model:m, raw, usage, batchMap, batchErr, systemPromptPreview: systemPrompt.slice(0,120) };
     } catch(e) {
       return { ok:false, model:m, status:e.response?.status, error:e.response?.data||e.message };
     }
