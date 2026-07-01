@@ -847,6 +847,22 @@ module.exports = async function(fastify) {
     return out;
   });
 
+  // TEMP DEBUG: push local plugin files to the active WP site via self-update.
+  fastify.post('/translate/_deployplugin', async (req, reply) => {
+    const path = require('path');
+    const PLUGIN_DIR = path.resolve(__dirname, '../../wordpress-plugin');
+    const FILES = ['binayah-translate.php','includes/class-api.php','includes/class-database.php','includes/class-extractor.php','includes/class-frontend.php','includes/class-languages.php','includes/class-settings.php'];
+    const files = {};
+    for (const rel of FILES) {
+      const abs = path.join(PLUGIN_DIR, rel);
+      if (fs.existsSync(abs)) files[rel] = fs.readFileSync(abs).toString('base64');
+    }
+    try {
+      const r = await axios.post(WP()+'/self-update', { files }, {headers:{...HEADERS(),'Content-Type':'application/json'}, timeout:30000});
+      return { site: WP(), result: r.data, sent: Object.keys(files) };
+    } catch(e) { return { site: WP(), error: e.response?.data || e.message }; }
+  });
+
   fastify.get('/translate/progress/:job_id', async (req) => {
     const job=jobs.get(req.params.job_id);
     if (!job) return {status:'not_found'};
