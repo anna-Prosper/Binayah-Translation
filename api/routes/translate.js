@@ -380,7 +380,7 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
   const langs    = language==='all' ? cfg.filter(l=>l.enabled).map(l=>l.code) : [language];
   const allFields = Object.entries(content.fields||{})
     .map(([k,v])=>({key:k,text:typeof v==='object'?v.value:v}))
-    .filter(f=>shouldTranslate(f.text));
+    .filter(f=>!f.key.startsWith('html:') && shouldTranslate(f.text));
 
   if (!allFields.length) { job.status='done'; job.results=[]; job.message='No translatable fields'; return; }
   job.total = allFields.length * langs.length;
