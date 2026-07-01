@@ -747,6 +747,34 @@ module.exports = async function(fastify) {
     return {job_id};
   });
 
+  // TEMP DEBUG: run a raw translation on provided texts and return raw model output.
+  fastify.post('/translate/_debug', async (req, reply) => {
+    const { texts, lang, api, model } = req.body || {};
+    if (!Array.isArray(texts) || !texts.length) return reply.status(400).send({error:'texts[] required'});
+    const l = lang || 'ru';
+    const a = api || 'openrouter';
+    const m = model || 'deepseek/deepseek-v3.2';
+    const systemPrompt = resolvePrompt(0, l, null);
+    const batchMsg = 'Translate each text below. Return ONLY a valid JSON array with exactly ' + texts.length + ' strings in the same order. No explanation, no markdown, just the JSON array.\n\n' + JSON.stringify(texts);
+    try {
+      let raw='', usage={};
+      if (a === 'openrouter') {
+        const r = await axios.post('https://openrouter.ai/api/v1/chat/completions',
+          {model:m,messages:[{role:'system',content:systemPrompt},{role:'user',content:batchMsg}],temperature:0.2,max_tokens:2000},
+          {headers:{Authorization:'Bearer '+process.env.OPENROUTER_API_KEY,'HTTP-Referer':'https://binayah.com','X-Title':'Binayah Translate'},timeout:60000});
+        raw = r.data.choices[0].message.content; usage = r.data.usage||{};
+      } else {
+        const r = await axios.post((process.env.DEEPSEEK_BASE_URL||'https://api.deepseek.com/v1')+'/chat/completions',
+          {model:m,messages:[{role:'system',content:systemPrompt},{role:'user',content:batchMsg}],temperature:0.2,max_tokens:2000},
+          {headers:{Authorization:'Bearer '+process.env.DEEPSEEK_API_KEY},timeout:60000});
+        raw = r.data.choices[0].message.content; usage = r.data.usage||{};
+      }
+      return { ok:true, model:m, raw, usage, systemPromptPreview: systemPrompt.slice(0,120) };
+    } catch(e) {
+      return { ok:false, model:m, status:e.response?.status, error:e.response?.data||e.message };
+    }
+  });
+
   fastify.get('/translate/progress/:job_id', async (req) => {
     const job=jobs.get(req.params.job_id);
     if (!job) return {status:'not_found'};
