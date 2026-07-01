@@ -383,6 +383,7 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
     .filter(f=>shouldTranslate(f.text));
 
   if (!allFields.length) { job.status='done'; job.results=[]; job.message='No translatable fields'; return; }
+  job.total = allFields.length * langs.length;
 
   job.page_title = content.post_title;
   job.post_url   = content.url || '';
