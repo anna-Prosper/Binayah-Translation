@@ -162,6 +162,13 @@ function classifyApiError(err, api) {
   if (status === 400 && (msgL.includes('token') || msgL.includes('context length') || msgL.includes('max_tokens'))) {
     return new Error('TOKEN_LIMIT: Token limit exceeded for this request. Try translating a shorter page.');
   }
+  // Invalid / unknown model ID — must be fatal, otherwise the batch falls back to
+  // echoing the original English text and silently "succeeds" with 0 tokens.
+  if (status === 404 || msgL.includes('not a valid model') || msgL.includes('is not a valid') ||
+      msgL.includes('no endpoints found') || msgL.includes('model not found') ||
+      msgL.includes('no allowed providers') || msgL.includes('unknown model')) {
+    return new Error('INVALID_MODEL: The selected AI model is invalid or unavailable. Please pick a valid model in Settings.');
+  }
   return null;
 }
 
@@ -553,7 +560,7 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
           totalOutputTokens += result.output_tokens || 0;
         } catch(err) {
           const msg = (err && err.message) || '';
-          if (msg.startsWith('NO_CREDITS:') || msg.startsWith('INVALID_KEY:') || msg.startsWith('RATE_LIMIT:') || msg.startsWith('MODEL_BUSY:') || msg.startsWith('TOKEN_LIMIT:')) {
+          if (msg.startsWith('NO_CREDITS:') || msg.startsWith('INVALID_KEY:') || msg.startsWith('INVALID_MODEL:') || msg.startsWith('RATE_LIMIT:') || msg.startsWith('MODEL_BUSY:') || msg.startsWith('TOKEN_LIMIT:')) {
             job.status = 'error';
             job.error  = msg.replace(/^[A-Z_]+: /, '');
             console.error('[BT] Fatal API error for job', job_id, ':', job.error);
@@ -613,7 +620,7 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
           if (useWordCache) chunk.forEach(t => { if (result.map[t]) xmSet(t, lang, result.map[t]); });
         } catch(err) {
           const msg = (err && err.message) || '';
-          if (msg.startsWith('NO_CREDITS:') || msg.startsWith('INVALID_KEY:') || msg.startsWith('RATE_LIMIT:') || msg.startsWith('MODEL_BUSY:') || msg.startsWith('TOKEN_LIMIT:')) {
+          if (msg.startsWith('NO_CREDITS:') || msg.startsWith('INVALID_KEY:') || msg.startsWith('INVALID_MODEL:') || msg.startsWith('RATE_LIMIT:') || msg.startsWith('MODEL_BUSY:') || msg.startsWith('TOKEN_LIMIT:')) {
             job.status = 'error';
             job.error  = msg.replace(/^[A-Z_]+: /, '');
             console.error('[BT] Fatal API error for job', job_id, ':', job.error);
