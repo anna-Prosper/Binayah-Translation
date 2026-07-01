@@ -122,6 +122,13 @@ class BT_API {
             'permission_callback' => array( __CLASS__, 'check_auth' ),
         ) );
 
+        // Plugin self-update — Node.js pushes new PHP files directly
+        register_rest_route( 'btranslate/v1', '/self-update', array(
+            'methods'             => 'POST',
+            'callback'            => array( __CLASS__, 'self_update' ),
+            'permission_callback' => array( __CLASS__, 'check_auth' ),
+        ) );
+
         // Global strings (nav menus) — post_id = 0
         register_rest_route( 'btranslate/v1', '/global/content', array(
             'methods'             => 'GET',
@@ -737,4 +744,56 @@ class BT_API {
         return rest_ensure_response( array( 'post_id' => $post_id, 'base_url' => $base_url, 'urls' => $urls ) );
     }
 
+    // ── Plugin self-update ──────────────────────────────────────────────────
+
+    /**
+     * Receives base64-encoded PHP file content from the Node.js deploy script
+     * and writes each file to the plugin directory.
+     * Auth: same X-Binayah-API-Key used everywhere.
+     * Body: { "files": { "includes/class-api.php": "<base64>", ... } }
+     */
+    public static function self_update( $request ) {
+        $body  = $request->get_json_params();
+        $files = $body['files'] ?? array();
+
+        if ( empty( $files ) || ! is_array( $files ) ) {
+            return new WP_Error( 'bad_request', 'files map required', array( 'status' => 400 ) );
+        }
+
+        // Plugin root = one directory above this file (includes/)
+        $plugin_root = trailingslashit( realpath( plugin_dir_path( __FILE__ ) . '..' ) );
+        $written     = array();
+        $failed      = array();
+
+        foreach ( $files as $rel_path => $b64_content ) {
+            // Sanitize: only allow paths within the plugin directory, no traversal
+            $rel_path = ltrim( str_replace( '..', '', $rel_path ), '/\\' );
+            if ( empty( $rel_path ) ) continue;
+
+            $abs_path = $plugin_root . $rel_path;
+            if ( strpos( realpath( dirname( $abs_path ) ) . '/', $plugin_root ) !== 0 ) {
+                $failed[] = $rel_path . ' (path traversal blocked)';
+                continue;
+            }
+
+            $content = base64_decode( $b64_content, true );
+            if ( $content === false ) { $failed[] = $rel_path . ' (bad base64)'; continue; }
+
+            $dir = dirname( $abs_path );
+            if ( ! is_dir( $dir ) ) wp_mkdir_p( $dir );
+
+            if ( file_put_contents( $abs_path, $content ) === false ) {
+                $failed[] = $rel_path . ' (write failed)';
+            } else {
+                $written[] = $rel_path;
+                if ( function_exists( 'opcache_invalidate' ) ) opcache_invalidate( $abs_path, true );
+            }
+        }
+
+        return rest_ensure_response( array(
+            'written' => $written,
+            'failed'  => $failed,
+            'status'  => empty( $failed ) ? 'success' : 'partial',
+        ) );
+    }
 }
