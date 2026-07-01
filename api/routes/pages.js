@@ -64,7 +64,21 @@ module.exports = async function (fastify) {
         },
         timeout: 15000,
       });
-      return res.data;
+      const data = res.data;
+      // Inject synthetic "Global (Nav Menus)" entry on page 1 with no search filter
+      if (!req.query.search && (!req.query.page || req.query.page === '1')) {
+        const globalEntry = {
+          id: 0, post_id: 0, post_type: 'global',
+          title: '🌐 Global (Nav Menus)',
+          slug: 'global-nav-menus',
+          url: '',
+          modified: '',
+          translated_languages: [],
+        };
+        data.data = [globalEntry, ...(data.data || [])];
+        data.total = (data.total || 0) + 1;
+      }
+      return data;
     } catch (err) {
       return reply.status(502).send({ error: 'Could not fetch pages', detail: err.message });
     }
@@ -82,9 +96,9 @@ module.exports = async function (fastify) {
 
   fastify.get('/page/:id/content', async (req, reply) => {
     try {
-      const res = await axios.get(`${WP()}/page/${req.params.id}/content`, {
-        headers: HEADERS(), timeout: 10000,
-      });
+      const id = req.params.id;
+      const url = id === '0' ? `${WP()}/global/content` : `${WP()}/page/${id}/content`;
+      const res = await axios.get(url, { headers: HEADERS(), timeout: 10000 });
       return res.data;
     } catch (err) {
       return reply.status(502).send({ error: 'Could not fetch page content', detail: err.message });
@@ -93,10 +107,11 @@ module.exports = async function (fastify) {
 
   fastify.get('/page/:id/translations', async (req, reply) => {
     try {
-      const res = await axios.get(
-        `${WP()}/page/${req.params.id}/translations?lang=${req.query.lang || 'ar'}`,
-        { headers: HEADERS(), timeout: 10000 }
-      );
+      const id  = req.params.id;
+      const url = id === '0'
+        ? `${WP()}/global/translations?lang=${req.query.lang || 'ar'}`
+        : `${WP()}/page/${id}/translations?lang=${req.query.lang || 'ar'}`;
+      const res = await axios.get(url, { headers: HEADERS(), timeout: 10000 });
       return res.data;
     } catch {
       return {};

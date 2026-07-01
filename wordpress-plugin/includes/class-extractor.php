@@ -319,6 +319,36 @@ class BT_Extractor {
         }
     }
 
+    // ── Nav Menus (global strings) ────────────────────────────────────────
+
+    /**
+     * Extract all registered nav menu item titles as translatable fields.
+     * Stored under post_id=0 ("global") so they apply to every page.
+     * Field key format: nav:{location}:{item_id}:title
+     */
+    public static function extract_nav_menus() {
+        $fields    = array();
+        $locations = get_nav_menu_locations();
+
+        foreach ( $locations as $location => $menu_id ) {
+            if ( ! $menu_id ) continue;
+            $items = wp_get_nav_menu_items( $menu_id, array( 'update_post_term_cache' => false ) );
+            if ( ! $items || is_wp_error( $items ) ) continue;
+
+            foreach ( $items as $item ) {
+                $title = trim( $item->title );
+                if ( $title === '' || strlen( $title ) < 2 ) continue;
+                // Skip if it's only numbers / punctuation
+                if ( ! preg_match( '/\p{L}/u', $title ) ) continue;
+
+                $fkey = 'nav:' . $location . ':' . $item->ID . ':title';
+                $fields[ $fkey ] = array( 'value' => $title, 'type' => 'text' );
+            }
+        }
+
+        return $fields;
+    }
+
     // ── WP Bakery ─────────────────────────────────────────────────────────
 
     private static function extract_wpbakery( $content ) {

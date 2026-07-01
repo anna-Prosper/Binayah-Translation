@@ -121,6 +121,94 @@ class BT_API {
             'callback'            => array( __CLASS__, 'lookup_translations' ),
             'permission_callback' => array( __CLASS__, 'check_auth' ),
         ) );
+
+        // Global strings (nav menus) — post_id = 0
+        register_rest_route( 'btranslate/v1', '/global/content', array(
+            'methods'             => 'GET',
+            'callback'            => array( __CLASS__, 'get_global_content' ),
+            'permission_callback' => array( __CLASS__, 'check_auth' ),
+        ) );
+        register_rest_route( 'btranslate/v1', '/global/save', array(
+            'methods'             => 'POST',
+            'callback'            => array( __CLASS__, 'save_global_translations' ),
+            'permission_callback' => array( __CLASS__, 'check_auth' ),
+        ) );
+        register_rest_route( 'btranslate/v1', '/global/translations', array(
+            'methods'             => 'GET',
+            'callback'            => array( __CLASS__, 'get_global_translations' ),
+            'permission_callback' => array( __CLASS__, 'check_auth' ),
+        ) );
+    }
+
+    // ── Global strings (nav menus, post_id = 0) ─────────────────────────────
+
+    public static function get_global_content( $request ) {
+        $fields = BT_Extractor::extract_nav_menus();
+        return rest_ensure_response( array(
+            'post_id'    => 0,
+            'post_title' => 'Global (Nav Menus)',
+            'post_type'  => 'global',
+            'url'        => home_url( '/' ),
+            'fields'     => $fields,
+        ) );
+    }
+
+    public static function save_global_translations( $request ) {
+        $body     = $request->get_json_params();
+        $lang     = sanitize_text_field( $body['language_code'] ?? '' );
+        $fields   = $body['fields'] ?? array();
+
+        if ( ! $lang || ! is_array( $fields ) || empty( $fields ) ) {
+            return new WP_Error( 'bad_request', 'language_code and fields required', array( 'status' => 400 ) );
+        }
+
+        $saved = 0; $failed = 0;
+        global $wpdb;
+        $table = BT_Database::table();
+
+        foreach ( $fields as $field_key => $data ) {
+            $translated = is_array( $data ) ? ( $data['translated'] ?? '' ) : (string) $data;
+            $original   = is_array( $data ) ? ( $data['original']   ?? '' ) : '';
+            $field_key  = sanitize_text_field( $field_key );
+
+            $result = $wpdb->replace( $table, array(
+                'post_id'         => 0,
+                'field_key'       => $field_key,
+                'field_type'      => 'text',
+                'language_code'   => $lang,
+                'original_text'   => $original,
+                'translated_text' => $translated,
+                'translated_by'   => 'api',
+                'status'          => ( $translated !== '' ) ? 'done' : 'pending',
+                'translated_at'   => current_time( 'mysql' ),
+            ), array( '%d','%s','%s','%s','%s','%s','%s','%s','%s' ) );
+
+            if ( $result !== false ) $saved++; else $failed++;
+        }
+
+        return rest_ensure_response( array( 'saved' => $saved, 'failed' => $failed, 'status' => 'success' ) );
+    }
+
+    public static function get_global_translations( $request ) {
+        $lang = sanitize_text_field( $request->get_param( 'lang' ) ?: '' );
+        if ( ! $lang ) return new WP_Error( 'bad_request', 'lang required', array( 'status' => 400 ) );
+
+        global $wpdb;
+        $table = BT_Database::table();
+        $rows  = $wpdb->get_results( $wpdb->prepare(
+            "SELECT field_key, original_text, translated_text FROM {$table}
+             WHERE post_id = 0 AND language_code = %s AND status = 'done'
+             AND translated_text IS NOT NULL AND CHAR_LENGTH(translated_text) > 0",
+            $lang
+        ), ARRAY_A );
+
+        $translations = array();
+        $hashes       = array();
+        foreach ( $rows as $row ) {
+            $translations[ $row['field_key'] ] = $row['translated_text'];
+            if ( $row['original_text'] ) $hashes[ $row['field_key'] ] = md5( $row['original_text'] );
+        }
+        return rest_ensure_response( array( 'translations' => $translations, 'hashes' => $hashes ) );
     }
 
     // ── Post types ──────────────────────────────────────────────────────────

@@ -195,6 +195,8 @@ class BT_Frontend {
             if ( $post_id > 0 ) {
                 $html = self::apply_text_translations( $html, $post_id, $lang );
             }
+            // Always apply global translations (nav menus, post_id = 0)
+            $html = self::apply_text_translations( $html, 0, $lang );
             $html = self::rewrite_translated_links( $html, $lang );
             $html = self::add_lang_attributes( $html, $lang );
             return $html;

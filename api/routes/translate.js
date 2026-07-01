@@ -366,14 +366,23 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
   const job = jobs.get(job_id);
   if (!job) return;
   let content;
-  try {
-    const r = await axios.get(WP()+'/page/'+page_id+'/html',{headers:HEADERS(),timeout:30000});
-    content = r.data;
-  } catch(e) {
+
+  // page_id=0 is the special "global strings" bucket (nav menus etc.)
+  if (page_id === 0) {
     try {
-      const r2 = await axios.get(WP()+'/page/'+page_id+'/content',{headers:HEADERS(),timeout:15000});
-      content = r2.data;
-    } catch(e2) { job.status='error'; job.error='WordPress fetch failed: '+e2.message; return; }
+      const r = await axios.get(WP()+'/global/content',{headers:HEADERS(),timeout:15000});
+      content = r.data;
+    } catch(e) { job.status='error'; job.error='WordPress global fetch failed: '+e.message; return; }
+  } else {
+    try {
+      const r = await axios.get(WP()+'/page/'+page_id+'/html',{headers:HEADERS(),timeout:30000});
+      content = r.data;
+    } catch(e) {
+      try {
+        const r2 = await axios.get(WP()+'/page/'+page_id+'/content',{headers:HEADERS(),timeout:15000});
+        content = r2.data;
+      } catch(e2) { job.status='error'; job.error='WordPress fetch failed: '+e2.message; return; }
+    }
   }
 
   const cfg      = readCfg();
@@ -410,9 +419,16 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
     // Validates stored hash against current English — stale translations
     // (source changed since last run) are excluded and will be retranslated.
     let existing = {};
+    const translationsUrl = page_id === 0
+      ? WP()+'/global/translations?lang='+lang
+      : WP()+'/page/'+page_id+'/translations?lang='+lang;
+    const saveUrl = page_id === 0
+      ? WP()+'/global/save'
+      : WP()+'/page/'+page_id+'/save';
+
     if (!force) {
       try {
-        const r = await axios.get(WP()+'/page/'+page_id+'/translations?lang='+lang, {headers:HEADERS(),timeout:10000});
+        const r = await axios.get(translationsUrl, {headers:HEADERS(),timeout:10000});
         const data = r.data || {};
         // Support both new {translations, hashes} format and legacy flat {field_key: text}
         const rawTranslations = data.translations || data;
@@ -438,7 +454,7 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
         // Wipe stale html:N keys from WP DB in the background (fire and forget)
         if (htmlKeysToWipe.length) {
           const wipeFields = Object.fromEntries(htmlKeysToWipe.map(k => [k, '']));
-          axios.post(WP()+'/page/'+page_id+'/save',
+          axios.post(saveUrl,
             {language_code:lang, fields:wipeFields},
             {headers:HEADERS(), timeout:15000}
           ).catch(() => {});
@@ -642,7 +658,7 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
 
     const origMap = Object.fromEntries(allFields.filter(f=>translations[f.key]).map(f=>[f.key,f.text]));
     try {
-      const saveRes = await axios.post(WP()+'/page/'+page_id+'/save',
+      const saveRes = await axios.post(saveUrl,
         {language_code:lang,fields:translations,originals:origMap,translated_by:api+':'+(model||'default')},
         {headers:HEADERS(),timeout:60000}
       );
