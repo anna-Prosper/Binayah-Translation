@@ -22,6 +22,18 @@ const USAGE      = dataDir('usage-stats.json');
 const GLOBAL_CFG = dataDir('global-config.json');
 const PAGE_CFG   = dataDir('page-config.json');
 const TRANS_LOG  = dataDir('translation-log.json');
+const HASH_STORE = dataDir('field-hashes.json');
+
+// Node-side hash store: { "{post_id}:{lang}:{field_key}": "md5hex" }
+// Used to detect stale translations without requiring WP plugin changes.
+function readHashes() { try { return JSON.parse(fs.readFileSync(HASH_STORE,'utf8')); } catch { return {}; } }
+function saveHashes(h) { fs.writeFileSync(HASH_STORE, JSON.stringify(h)); }
+function getFieldHash(post_id, lang, key) { return readHashes()[`${post_id}:${lang}:${key}`] || null; }
+function setFieldHashes(post_id, lang, fieldMap) {
+  const h = readHashes();
+  for (const [key, text] of Object.entries(fieldMap)) h[`${post_id}:${lang}:${key}`] = md5(String(text));
+  saveHashes(h);
+}
 
 const readCfg     = () => { try { return JSON.parse(fs.readFileSync(CFG,'utf8')); } catch { return []; } };
 const readGlobal  = () => { try { return JSON.parse(fs.readFileSync(GLOBAL_CFG,'utf8')); } catch { return {api:'deepseek',model:'deepseek-chat'}; } };
@@ -407,7 +419,9 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
         const fieldMap        = Object.fromEntries(allFields.map(f => [f.key, f.text]));
 
         for (const [key, translated] of Object.entries(rawTranslations)) {
-          const storedHash  = hashes[key];
+          const wpHash    = hashes[key];
+          const nodeHash  = getFieldHash(page_id, lang, key);
+          const storedHash = wpHash || nodeHash;
           const currentText = fieldMap[key];
           if (storedHash && currentText !== undefined && md5(currentText) !== storedHash) {
             console.log('[BT] Stale translation for field', key, 'lang', lang, '— source changed, will retranslate');
@@ -617,6 +631,9 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
         {language_code:lang,fields:translations,originals:origMap,translated_by:api+':'+(model||'default')},
         {headers:HEADERS(),timeout:60000}
       );
+      // Store hashes for all saved fields so stale detection works next run
+      // without requiring WordPress plugin changes.
+      setFieldHashes(page_id, lang, origMap);
       if (saveRes.data && saveRes.data.saved !== undefined) {
         const apiCallCount = MORPHOLOGICALLY_COMPLEX.has(lang)
           ? Math.ceil(toTranslate.length / BATCH_SIZE)
