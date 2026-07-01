@@ -258,9 +258,14 @@ export default function Shell({ children }: { children: ReactNode }) {
   const activeSiteKey = _isAdmin ? (envInfo?.active || '') : userActiveSite;
   const canSwitch = _isAdmin ? Object.keys(envInfo?.sites || {}).length > 1 : userSiteKeys.length > 1;
   const siteLabel = activeSiteKey === 'live' ? 'LIVE' : activeSiteKey === 'staging' ? 'STAGING' : activeSiteKey.toUpperCase();
-  const nextSite  = _isAdmin
-    ? (activeSiteKey === 'live' ? 'staging' : 'live')
-    : userSiteKeys.find(k => k !== activeSiteKey) || '';
+  const allSiteKeys = _isAdmin ? Object.keys(envInfo?.sites || {}) : userSiteKeys;
+  const nextSite = (() => {
+    const idx = allSiteKeys.indexOf(activeSiteKey);
+    return allSiteKeys[(idx + 1) % allSiteKeys.length] || '';
+  })();
+  const nextSiteLabel = _isAdmin
+    ? (envInfo?.sites?.[nextSite]?.name || nextSite.toUpperCase())
+    : nextSite.toUpperCase();
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: D.bg, fontFamily: '-apple-system, "Segoe UI", Arial, sans-serif', color: D.text1, fontSize: 13 }}>
@@ -291,7 +296,7 @@ export default function Shell({ children }: { children: ReactNode }) {
                     fontSize: 10, padding: '2px 7px', borderRadius: 4, border: '1px solid rgba(255,255,255,0.25)',
                     background: 'transparent', color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600,
                   }}>
-                  {envSwitching ? '...' : 'Switch'}
+                  {envSwitching ? '...' : `→ ${nextSiteLabel}`}
                 </button>
               ) : (
                 <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>locked</span>
