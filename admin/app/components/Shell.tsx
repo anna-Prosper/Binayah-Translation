@@ -263,9 +263,7 @@ export default function Shell({ children }: { children: ReactNode }) {
     const idx = allSiteKeys.indexOf(activeSiteKey);
     return allSiteKeys[(idx + 1) % allSiteKeys.length] || '';
   })();
-  const nextSiteLabel = _isAdmin
-    ? (envInfo?.sites?.[nextSite]?.name || nextSite.toUpperCase())
-    : nextSite.toUpperCase();
+  const nextSiteLabel = nextSite.toUpperCase();
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: D.bg, fontFamily: '-apple-system, "Segoe UI", Arial, sans-serif', color: D.text1, fontSize: 13 }}>
