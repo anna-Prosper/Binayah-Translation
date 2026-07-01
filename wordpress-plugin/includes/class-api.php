@@ -176,8 +176,6 @@ class BT_API {
         $live = BT_Extractor::extract_nav_menus();
 
         $saved = 0; $failed = 0;
-        global $wpdb;
-        $table = BT_Database::table();
         $by    = sanitize_text_field( $body['translated_by'] ?? 'api' );
 
         foreach ( $fields as $field_key => $data ) {
@@ -194,19 +192,14 @@ class BT_API {
                 $original = $originals[ $field_key ] ?? '';
             }
 
-            $result = $wpdb->replace( $table, array(
-                'post_id'         => 0,
-                'field_key'       => $field_key,
-                'field_type'      => 'text',
-                'language_code'   => $lang,
-                'original_text'   => $original,
-                'translated_text' => $translated,
-                'translated_by'   => $by,
-                'status'          => ( $translated !== '' ) ? 'done' : 'pending',
-                'translated_at'   => current_time( 'mysql' ),
-            ), array( '%d','%s','%s','%s','%s','%s','%s','%s','%s','%s' ) );
-
-            if ( $result !== false ) $saved++; else $failed++;
+            // Delegate to the proven INSERT ... ON DUPLICATE KEY UPDATE path used by
+            // regular pages (post_id = 0 is the global bucket).
+            try {
+                BT_Database::save_translation( 0, $field_key, 'text', $lang, $original, $translated, $by );
+                $saved++;
+            } catch ( Exception $e ) {
+                $failed++;
+            }
         }
 
         return rest_ensure_response( array( 'saved' => $saved, 'failed' => $failed, 'status' => 'success' ) );
