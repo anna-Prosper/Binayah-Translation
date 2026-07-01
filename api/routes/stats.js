@@ -1,11 +1,11 @@
 const { WP, HEADERS } = require('../lib/wp-env');
-const fp = require("fastify-plugin")
-const axios = require("axios")
-const fs = require("fs")
-const path = require("path")
+const fp      = require("fastify-plugin")
+const axios   = require("axios")
+const fs      = require("fs")
+const dataDir = require('../lib/data-dir');
 
-const USERS_PATH = path.join(__dirname, "../users.json")
-const LOG_PATH   = path.join(__dirname, "../translation-log.json")
+const USERS_PATH = dataDir("users.json")
+const LOG_PATH   = dataDir("translation-log.json")
 
 function readUsers() {
   try { return JSON.parse(fs.readFileSync(USERS_PATH, "utf8")) }
@@ -18,7 +18,7 @@ function readLog() {
 }
 
 module.exports = fp(async function (fastify) {
-  const USAGE   = path.join(__dirname, "../usage-stats.json")
+  const USAGE   = dataDir("usage-stats.json")
 
   // GET /stats — global stats from WordPress
   fastify.get("/stats", async (req, reply) => {

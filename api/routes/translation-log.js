@@ -1,8 +1,8 @@
 'use strict';
-const fs   = require('fs');
-const path = require('path');
+const fs      = require('fs');
+const dataDir = require('../lib/data-dir');
 
-const LOG_FILE = path.join(__dirname, '../translation-log.json');
+const LOG_FILE = dataDir('translation-log.json');
 
 function readLog() {
   try { return JSON.parse(fs.readFileSync(LOG_FILE, 'utf8')); }

@@ -1,10 +1,10 @@
 'use strict';
-const jwt  = require('jsonwebtoken');
-const fs   = require('fs');
-const path = require('path');
+const jwt     = require('jsonwebtoken');
+const fs      = require('fs');
+const dataDir = require('../lib/data-dir');
 
-const TRANS_LOG  = path.join(__dirname, '../translation-log.json');
-const USERS_PATH = path.join(__dirname, '../users.json');
+const TRANS_LOG  = dataDir('translation-log.json');
+const USERS_PATH = dataDir('users.json');
 
 function readLog()   { try { return JSON.parse(fs.readFileSync(TRANS_LOG,  'utf8')); } catch { return []; } }
 function readUsers() { try { return JSON.parse(fs.readFileSync(USERS_PATH, 'utf8')); } catch { return []; } }
