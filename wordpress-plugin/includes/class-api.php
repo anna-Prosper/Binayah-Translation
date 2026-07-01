@@ -161,22 +161,38 @@ class BT_API {
     }
 
     public static function save_global_translations( $request ) {
-        $body     = $request->get_json_params();
-        $lang     = sanitize_text_field( $body['language_code'] ?? '' );
-        $fields   = $body['fields'] ?? array();
+        $body      = $request->get_json_params();
+        $lang      = sanitize_text_field( $body['language_code'] ?? '' );
+        $fields    = $body['fields']    ?? array();
+        $originals = $body['originals'] ?? array(); // map of field_key => original English text
 
         if ( ! $lang || ! is_array( $fields ) || empty( $fields ) ) {
             return new WP_Error( 'bad_request', 'language_code and fields required', array( 'status' => 400 ) );
         }
 
+        // Re-extract live nav menus to get authoritative original text (takes precedence over
+        // whatever the API server sends, but API-provided originals are the fallback for
+        // field keys not found in the live extraction).
+        $live = BT_Extractor::extract_nav_menus();
+
         $saved = 0; $failed = 0;
         global $wpdb;
         $table = BT_Database::table();
+        $by    = sanitize_text_field( $body['translated_by'] ?? 'api' );
 
         foreach ( $fields as $field_key => $data ) {
             $translated = is_array( $data ) ? ( $data['translated'] ?? '' ) : (string) $data;
-            $original   = is_array( $data ) ? ( $data['original']   ?? '' ) : '';
             $field_key  = sanitize_text_field( $field_key );
+
+            // Prefer live-extracted original so it always matches rendered HTML
+            if ( isset( $live[ $field_key ] ) ) {
+                $orig_data = $live[ $field_key ];
+                $original  = is_array( $orig_data ) ? ( $orig_data['value'] ?? '' ) : (string) $orig_data;
+            } elseif ( is_array( $data ) ) {
+                $original = $data['original'] ?? '';
+            } else {
+                $original = $originals[ $field_key ] ?? '';
+            }
 
             $result = $wpdb->replace( $table, array(
                 'post_id'         => 0,
@@ -185,10 +201,10 @@ class BT_API {
                 'language_code'   => $lang,
                 'original_text'   => $original,
                 'translated_text' => $translated,
-                'translated_by'   => 'api',
+                'translated_by'   => $by,
                 'status'          => ( $translated !== '' ) ? 'done' : 'pending',
                 'translated_at'   => current_time( 'mysql' ),
-            ), array( '%d','%s','%s','%s','%s','%s','%s','%s','%s' ) );
+            ), array( '%d','%s','%s','%s','%s','%s','%s','%s','%s','%s' ) );
 
             if ( $result !== false ) $saved++; else $failed++;
         }

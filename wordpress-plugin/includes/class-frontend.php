@@ -219,9 +219,14 @@ class BT_Frontend {
 
         if ( empty( $rows ) ) return $html;
 
-        // Live extracted values for this post (ensures we match against current HTML content)
-        $post      = get_post( $post_id );
-        $extracted = $post ? BT_Extractor::extract( $post ) : array();
+        // Live extracted values for this post (ensures we match against current HTML content).
+        // post_id=0 is the global nav bucket — use nav-menu extraction (no real post exists).
+        if ( $post_id === 0 ) {
+            $extracted = BT_Extractor::extract_nav_menus();
+        } else {
+            $post      = get_post( $post_id );
+            $extracted = $post ? BT_Extractor::extract( $post ) : array();
+        }
 
         // Index current-lang translated_text by field_key (for cross-lang lookup below)
         $current_by_field = array();

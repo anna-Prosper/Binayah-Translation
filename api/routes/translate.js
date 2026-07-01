@@ -374,15 +374,13 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
       content = r.data;
     } catch(e) { job.status='error'; job.error='WordPress global fetch failed: '+e.message; return; }
   } else {
+    // Use structured Elementor content (named keys) as primary source.
+    // The /html endpoint produces html:N positional keys which are unreliable
+    // when page layout changes and are permanently blocked in allFields below.
     try {
-      const r = await axios.get(WP()+'/page/'+page_id+'/html',{headers:HEADERS(),timeout:30000});
+      const r = await axios.get(WP()+'/page/'+page_id+'/content',{headers:HEADERS(),timeout:15000});
       content = r.data;
-    } catch(e) {
-      try {
-        const r2 = await axios.get(WP()+'/page/'+page_id+'/content',{headers:HEADERS(),timeout:15000});
-        content = r2.data;
-      } catch(e2) { job.status='error'; job.error='WordPress fetch failed: '+e2.message; return; }
-    }
+    } catch(e) { job.status='error'; job.error='WordPress fetch failed: '+e.message; return; }
   }
 
   const cfg      = readCfg();
