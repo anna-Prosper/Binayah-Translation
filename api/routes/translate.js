@@ -863,6 +863,19 @@ module.exports = async function(fastify) {
     } catch(e) { return { site: WP(), error: e.response?.data || e.message }; }
   });
 
+  // TEMP DEBUG: fix invalid model IDs in the language config.
+  fastify.post('/translate/_fixmodels', async (req, reply) => {
+    const newModel = (req.body && req.body.model) || 'deepseek/deepseek-v3.2';
+    const badModel = (req.body && req.body.bad) || 'deepseek/deepseek-chat-v3-5';
+    const cfg = readCfg();
+    const changed = [];
+    for (const l of cfg) {
+      if (l.model === badModel) { l.model = newModel; changed.push(l.code); }
+    }
+    fs.writeFileSync(CFG, JSON.stringify(cfg, null, 2));
+    return { changed, newModel, langs: cfg.map(l=>({code:l.code, model:l.model})) };
+  });
+
   fastify.get('/translate/progress/:job_id', async (req) => {
     const job=jobs.get(req.params.job_id);
     if (!job) return {status:'not_found'};
