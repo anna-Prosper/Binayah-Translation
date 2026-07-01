@@ -723,7 +723,7 @@ module.exports = async function(fastify) {
 
   fastify.post('/translate/page/async', async (req,reply) => {
     const {page_id, language, api:bodyApi, model:bodyModel, prompts, force} = req.body;
-    if (!page_id) return reply.status(400).send({error:'page_id required'});
+    if (page_id === undefined || page_id === null) return reply.status(400).send({error:'page_id required'});
     if (bodyApi || bodyModel) {
       const pageCfg = readPageCfg();
       pageCfg[page_id] = { ...(pageCfg[page_id]||{}), ...(bodyApi?{api:bodyApi}:{}), ...(bodyModel?{model:bodyModel}:{}) };

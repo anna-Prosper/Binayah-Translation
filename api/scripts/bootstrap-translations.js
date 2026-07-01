@@ -76,7 +76,7 @@ async function getEnabledLangs(token) {
 async function getHomePage(site, token) {
   try {
     const res = await axios.get(`${API_BASE}/pages/front-page?env=${site}`, { headers: headers(token) });
-    return res.data?.post_id || null;
+    return res.data?.post_id || res.data?.data?.[0]?.post_id || null;
   } catch {
     // Fallback: search for "Home Main"
     try {
