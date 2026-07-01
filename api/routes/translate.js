@@ -806,6 +806,47 @@ module.exports = async function(fastify) {
     return out;
   });
 
+  // TEMP DEBUG: replicate exact global-nav job flow end to end.
+  fastify.post('/translate/_debugflow', async (req, reply) => {
+    const lang = (req.body && req.body.lang) || 'ru';
+    const api = (req.body && req.body.api) || 'openrouter';
+    const model = (req.body && req.body.model) || 'deepseek/deepseek-v3.2';
+    const out = {};
+    let content;
+    try { const r = await axios.get(WP()+'/global/content',{headers:HEADERS(),timeout:15000}); content = r.data; }
+    catch(e){ return { fetch_err: e.message }; }
+    out.site = content.url;
+    const allFields = Object.entries(content.fields||{})
+      .map(([k,v])=>({key:k,text:typeof v==='object'?v.value:v}))
+      .filter(f=>!f.key.startsWith('html:') && shouldTranslate(f.text));
+    out.allFields_count = allFields.length;
+    const systemPrompt = resolvePrompt(0, lang, null);
+    const uniqueTexts = [...new Set(allFields.map(f=>f.text))];
+    const textMap = {};
+    for (let ci=0; ci<uniqueTexts.length; ci+=BATCH_SIZE) {
+      const chunk = uniqueTexts.slice(ci, ci+BATCH_SIZE);
+      const result = await translateBatch(chunk, lang, api, model, systemPrompt);
+      Object.assign(textMap, result.map);
+    }
+    const translations = {};
+    for (const f of allFields) if (textMap[f.text] !== undefined) translations[f.key] = textMap[f.text];
+    out.translations_sample = Object.fromEntries(Object.entries(translations).slice(0,5));
+    out.translations_count = Object.keys(translations).length;
+    const origMap = Object.fromEntries(allFields.filter(f=>translations[f.key]).map(f=>[f.key,f.text]));
+    try {
+      const saveRes = await axios.post(WP()+'/global/save',
+        {language_code:lang, fields:translations, originals:origMap, translated_by:api+':'+model},
+        {headers:HEADERS(),timeout:60000});
+      out.save_response = saveRes.data;
+    } catch(e){ out.save_err = e.response?.data || e.message; }
+    try {
+      const rr = await axios.get(WP()+'/global/translations?lang='+lang,{headers:HEADERS(),timeout:15000});
+      const t = rr.data.translations || rr.data;
+      out.readback_sample = Object.fromEntries(Object.entries(t).slice(0,5));
+    } catch(e){ out.read_err = e.message; }
+    return out;
+  });
+
   fastify.get('/translate/progress/:job_id', async (req) => {
     const job=jobs.get(req.params.job_id);
     if (!job) return {status:'not_found'};
