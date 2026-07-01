@@ -418,7 +418,12 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
         const hashes          = data.hashes || {};
         const fieldMap        = Object.fromEntries(allFields.map(f => [f.key, f.text]));
 
+        const htmlKeysToWipe = [];
         for (const [key, translated] of Object.entries(rawTranslations)) {
+          // html:N positional keys are from the old scraping system — always discard them.
+          // They cause wrong content when the page layout changes (key shifting).
+          // Collect for async wipe so they stop interfering on future renders.
+          if (key.startsWith('html:')) { if (translated) htmlKeysToWipe.push(key); continue; }
           const wpHash    = hashes[key];
           const nodeHash  = getFieldHash(page_id, lang, key);
           const storedHash = wpHash || nodeHash;
@@ -428,6 +433,15 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
             continue;
           }
           existing[key] = translated;
+        }
+        // Wipe stale html:N keys from WP DB in the background (fire and forget)
+        if (htmlKeysToWipe.length) {
+          const wipeFields = Object.fromEntries(htmlKeysToWipe.map(k => [k, '']));
+          axios.post(WP()+'/page/'+page_id+'/save',
+            {language_code:lang, fields:wipeFields},
+            {headers:HEADERS(), timeout:15000}
+          ).catch(() => {});
+          console.log('[BT] Wiping', htmlKeysToWipe.length, 'stale html:N keys for page', page_id, 'lang', lang);
         }
 
         // Skip xMem for complex langs — they use keyed translation and never read xMem
