@@ -343,6 +343,26 @@ class BT_Frontend {
             if ( $smart !== $orig && $smart !== $encoded ) {
                 $html = str_replace( $smart, $trans, $html );
             }
+
+            // Try 4: full wptexturize() — WordPress runs this on rendered content, so
+            // ASCII straight quotes/apostrophes/dashes in the stored original become
+            // curly-quote entities in the HTML. Replicate that so the original matches.
+            // e.g. Dubai's  ->  Dubai&#8217;s ,  "off-plan"  ->  &#8220;off-plan&#8221;
+            if ( function_exists( 'wptexturize' ) ) {
+                $textured = wptexturize( $orig );
+                // wptexturize emits UTF-8 curly chars; the page outputs numeric entities.
+                $textured_ent = str_replace(
+                    array( "\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}", "\u{2013}", "\u{2014}", "\u{2026}", "\u{00A0}" ),
+                    array( '&#8216;',  '&#8217;',  '&#8220;',  '&#8221;',  '&#8211;',  '&#8212;',  '&#8230;', '&nbsp;' ),
+                    $textured
+                );
+                if ( $textured !== $orig && $textured !== $smart ) {
+                    $html = str_replace( $textured, $trans, $html );
+                }
+                if ( $textured_ent !== $textured && $textured_ent !== $smart ) {
+                    $html = str_replace( $textured_ent, $trans, $html );
+                }
+            }
         }
 
         return $html;
