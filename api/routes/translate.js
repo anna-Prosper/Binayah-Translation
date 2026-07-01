@@ -775,6 +775,33 @@ module.exports = async function(fastify) {
     }
   });
 
+  // TEMP DEBUG: test WP global save+read roundtrip using the server WP API key.
+  fastify.post('/translate/_debugwp', async (req, reply) => {
+    const lang = (req.body && req.body.lang) || 'ru';
+    const testKey = 'nav:__debug__:1:title';
+    const out = {};
+    try {
+      // read content to confirm which site we're on
+      const cr = await axios.get(WP()+'/global/content',{headers:HEADERS(),timeout:15000});
+      out.site_url = cr.data.url;
+      out.field_count = Object.keys(cr.data.fields||{}).length;
+    } catch(e){ out.content_err = e.message; }
+    try {
+      const saveRes = await axios.post(WP()+'/global/save',
+        {language_code:lang, fields:{[testKey]:'ТЕСТ_ЗНАЧЕНИЕ'}, originals:{[testKey]:'Debug Test'}, translated_by:'debug'},
+        {headers:HEADERS(),timeout:30000});
+      out.save_response = saveRes.data;
+    } catch(e){ out.save_err = e.response?.data || e.message; }
+    try {
+      const rr = await axios.get(WP()+'/global/translations?lang='+lang,{headers:HEADERS(),timeout:15000});
+      const t = rr.data.translations || rr.data;
+      out.readback_testkey = t[testKey];
+      out.readback_total = Object.keys(t).length;
+      out.readback_sample = Object.fromEntries(Object.entries(t).slice(0,3));
+    } catch(e){ out.read_err = e.response?.data || e.message; }
+    return out;
+  });
+
   fastify.get('/translate/progress/:job_id', async (req) => {
     const job=jobs.get(req.params.job_id);
     if (!job) return {status:'not_found'};
