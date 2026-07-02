@@ -1,5 +1,4 @@
 'use strict';
-// plugin-bundle-marker: bump to force API redeploy so latest wordpress-plugin files ship (v1.7.12)
 const axios = require('axios');
 const { WP, HEADERS } = require('../lib/wp-env');
 const cache  = require('../lib/translation-cache');
@@ -746,17 +745,6 @@ module.exports = async function(fastify) {
     jobs.set(job_id,{status:'running',progress:0,total:0,current_lang:'',current_field:'',page_title:'',results:null,error:null,stopped:false,paused:false,user_id:_uid,user_name:_uname});
     runJob(job_id, page_id, language, prompts||{}, forceMap);
     return {job_id};
-  });
-
-  // TEMP: push local plugin files to the active WP site via self-update.
-  fastify.post('/translate/_deployplugin', async (req, reply) => {
-    const path = require('path');
-    const PLUGIN_DIR = path.resolve(__dirname, '../../wordpress-plugin');
-    const FILES = ['binayah-translate.php','includes/class-api.php','includes/class-database.php','includes/class-extractor.php','includes/class-frontend.php','includes/class-languages.php','includes/class-settings.php'];
-    const files = {};
-    for (const rel of FILES) { const abs = path.join(PLUGIN_DIR, rel); if (fs.existsSync(abs)) files[rel] = fs.readFileSync(abs).toString('base64'); }
-    try { const r = await axios.post(WP()+'/self-update', { files }, {headers:{...HEADERS(),'Content-Type':'application/json'}, timeout:30000}); return { site: WP(), result: r.data }; }
-    catch(e) { return { site: WP(), error: e.response?.data || e.message }; }
   });
 
   fastify.get('/translate/progress/:job_id', async (req) => {
