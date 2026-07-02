@@ -1,5 +1,5 @@
 'use strict';
-// plugin-bundle-marker: bump to force API redeploy so latest wordpress-plugin files ship (v1.7.11)
+// plugin-bundle-marker: bump to force API redeploy so latest wordpress-plugin files ship (v1.7.12)
 const axios = require('axios');
 const { WP, HEADERS } = require('../lib/wp-env');
 const cache  = require('../lib/translation-cache');
@@ -746,12 +746,6 @@ module.exports = async function(fastify) {
     jobs.set(job_id,{status:'running',progress:0,total:0,current_lang:'',current_field:'',page_title:'',results:null,error:null,stopped:false,paused:false,user_id:_uid,user_name:_uname});
     runJob(job_id, page_id, language, prompts||{}, forceMap);
     return {job_id};
-  });
-
-  // TEMP: proxy WP debug-raw (uses server WP key).
-  fastify.get('/translate/_debugraw', async (req, reply) => {
-    try { const r = await axios.get(WP()+'/debug-raw?id='+(req.query.id||''), {headers:HEADERS(), timeout:20000}); return r.data; }
-    catch(e){ return { error: e.response?.data || e.message }; }
   });
 
   // TEMP: push local plugin files to the active WP site via self-update.

@@ -145,45 +145,6 @@ class BT_API {
             'callback'            => array( __CLASS__, 'get_global_translations' ),
             'permission_callback' => array( __CLASS__, 'check_auth' ),
         ) );
-
-        // TEMP DEBUG: dump raw Elementor widget structure for a post.
-        register_rest_route( 'btranslate/v1', '/debug-raw', array(
-            'methods'             => 'GET',
-            'callback'            => array( __CLASS__, 'debug_raw' ),
-            'permission_callback' => array( __CLASS__, 'check_auth' ),
-        ) );
-    }
-
-    public static function debug_raw( $request ) {
-        $id  = (int) $request->get_param( 'id' );
-        $raw = get_post_meta( $id, '_elementor_data', true );
-        $data = is_string( $raw ) ? json_decode( $raw, true ) : $raw;
-        $out  = array();
-        $walk = function( $els ) use ( &$walk, &$out ) {
-            if ( ! is_array( $els ) ) return;
-            foreach ( $els as $el ) {
-                if ( ! is_array( $el ) ) continue;
-                if ( ( $el['elType'] ?? '' ) === 'widget' ) {
-                    $wt = $el['widgetType'] ?? '';
-                    $s  = $el['settings'] ?? array();
-                    $textish = array();
-                    foreach ( $s as $k => $v ) {
-                        if ( is_string( $v ) && preg_match( '/[A-Za-zА-Яа-я]{4,}/u', $v ) && strlen( $v ) < 200 ) {
-                            $textish[ $k ] = $v;
-                        }
-                    }
-                    if ( ! empty( $textish ) ) $out[] = array( 'id' => $el['id'] ?? '', 'widget' => $wt, 'text' => $textish );
-                }
-                if ( ! empty( $el['elements'] ) ) $walk( $el['elements'] );
-            }
-        };
-        $walk( is_array( $data ) ? $data : array() );
-        // filter to widgets whose text mentions newsletter/subscribe/informed
-        $hits = array_values( array_filter( $out, function( $w ) {
-            foreach ( $w['text'] as $t ) if ( preg_match( '/newsletter|subscribe|informed|email/i', $t ) ) return true;
-            return false;
-        } ) );
-        return rest_ensure_response( array( 'total_widgets' => count( $out ), 'newsletter_hits' => $hits ) );
     }
 
     // ── Global strings (nav menus, post_id = 0) ─────────────────────────────
