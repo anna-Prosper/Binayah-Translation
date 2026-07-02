@@ -1,4 +1,5 @@
 'use strict';
+// plugin-bundle-marker: bump to force API redeploy so latest wordpress-plugin files ship (v1.7.7)
 const axios = require('axios');
 const { WP, HEADERS } = require('../lib/wp-env');
 const cache  = require('../lib/translation-cache');
