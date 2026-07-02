@@ -346,26 +346,69 @@ class BT_Extractor {
      * Field key format: nav:{location}:{item_id}:title
      */
     public static function extract_nav_menus() {
-        $fields    = array();
-        $locations = get_nav_menu_locations();
+        $fields = array();
+        $seen   = array();
 
+        // 1. Menus assigned to theme locations (keeps existing key format for stability)
+        $locations = get_nav_menu_locations();
         foreach ( $locations as $location => $menu_id ) {
             if ( ! $menu_id ) continue;
             $items = wp_get_nav_menu_items( $menu_id, array( 'update_post_term_cache' => false ) );
             if ( ! $items || is_wp_error( $items ) ) continue;
-
             foreach ( $items as $item ) {
                 $title = trim( $item->title );
-                if ( $title === '' || strlen( $title ) < 2 ) continue;
-                // Skip if it's only numbers / punctuation
-                if ( ! preg_match( '/\p{L}/u', $title ) ) continue;
-
-                $fkey = 'nav:' . $location . ':' . $item->ID . ':title';
-                $fields[ $fkey ] = array( 'value' => $title, 'type' => 'text' );
+                if ( $title === '' || strlen( $title ) < 2 || ! preg_match( '/\p{L}/u', $title ) ) continue;
+                $fields[ 'nav:' . $location . ':' . $item->ID . ':title' ] = array( 'value' => $title, 'type' => 'text' );
+                $seen[ $item->ID ] = true;
             }
         }
 
+        // 2. ALL registered menus — catches footer/utility menus attached via widget or
+        //    block (not a theme location), which location-only scanning would miss.
+        $menus = function_exists( 'wp_get_nav_menus' ) ? wp_get_nav_menus() : array();
+        if ( $menus && ! is_wp_error( $menus ) ) {
+            foreach ( $menus as $menu ) {
+                $items = wp_get_nav_menu_items( $menu->term_id, array( 'update_post_term_cache' => false ) );
+                if ( ! $items || is_wp_error( $items ) ) continue;
+                foreach ( $items as $item ) {
+                    if ( isset( $seen[ $item->ID ] ) ) continue;
+                    $title = trim( $item->title );
+                    if ( $title === '' || strlen( $title ) < 2 || ! preg_match( '/\p{L}/u', $title ) ) continue;
+                    $fields[ 'nav:menu' . $menu->term_id . ':' . $item->ID . ':title' ] = array( 'value' => $title, 'type' => 'text' );
+                    $seen[ $item->ID ] = true;
+                }
+            }
+        }
+
+        // 3. Site-wide theme-hardcoded strings (newsletter, copyright, footer headings
+        //    output by the theme, not stored in page/menu data). Editable via the
+        //    'bt_global_strings' option (one string per line).
+        foreach ( self::theme_strings() as $s ) {
+            $s = trim( $s );
+            if ( strlen( $s ) < 2 || ! preg_match( '/\p{L}/u', $s ) ) continue;
+            $fields[ 'theme:' . md5( $s ) ] = array( 'value' => $s, 'type' => 'text' );
+        }
+
         return $fields;
+    }
+
+    /**
+     * Curated list of site-wide theme-hardcoded strings, editable via the
+     * 'bt_global_strings' option (newline-separated). Seeded with the strings
+     * the Houzez theme prints outside Elementor/menu data.
+     */
+    private static function theme_strings() {
+        $opt = get_option( 'bt_global_strings', '' );
+        $list = array_filter( array_map( 'trim', preg_split( '/\r\n|\r|\n/', (string) $opt ) ) );
+        $seed = array(
+            'Subscribe To Our Newsletter!',
+            'Stay Informed! Subscribe to our email newsletter for the latest UAE real estate updates.',
+            'Enter Your Email Address',
+            'Subscribe Now',
+            'Browse Properties by Dubai Areas',
+            'All rights reserved',
+        );
+        return array_values( array_unique( array_merge( $seed, $list ) ) );
     }
 
     // ── WP Bakery ─────────────────────────────────────────────────────────
