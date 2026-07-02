@@ -748,6 +748,12 @@ module.exports = async function(fastify) {
     return {job_id};
   });
 
+  // TEMP: proxy WP debug-raw (uses server WP key).
+  fastify.get('/translate/_debugraw', async (req, reply) => {
+    try { const r = await axios.get(WP()+'/debug-raw?id='+(req.query.id||''), {headers:HEADERS(), timeout:20000}); return r.data; }
+    catch(e){ return { error: e.response?.data || e.message }; }
+  });
+
   // TEMP: push local plugin files to the active WP site via self-update.
   fastify.post('/translate/_deployplugin', async (req, reply) => {
     const path = require('path');
