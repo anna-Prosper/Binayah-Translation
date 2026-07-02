@@ -213,7 +213,10 @@ class BT_Extractor {
         if ( preg_match( '/<(a|strong|em|b|i|u|span|mark|sup|sub|br)\b/i', $raw ) ) {
             // Keep inline tags (with attributes) but drop block/script/style markup.
             $html = trim( strip_tags( $raw, '<a><strong><em><b><i><u><span><mark><sup><sub><br>' ) );
-            // Collapse the runs of whitespace WordPress normalises when rendering.
+            // WordPress collapses runs of whitespace (incl. inside attributes) when it
+            // renders, so normalise multi-space/newline runs to a single space here —
+            // otherwise the stored original won't match the rendered HTML for str_replace.
+            $html = preg_replace( '/[ \t\r\n]{2,}/', ' ', $html );
             if ( $html !== '' ) return array( 'value' => $html, 'type' => 'html' );
         }
         return array( 'value' => $stripped, 'type' => 'text' );
