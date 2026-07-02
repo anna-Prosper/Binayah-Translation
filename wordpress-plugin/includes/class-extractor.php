@@ -213,9 +213,15 @@ class BT_Extractor {
         // renders, so normalise multi-space/newline/tab runs to a single space —
         // otherwise the stored original won't match the rendered HTML for str_replace.
         $stripped = trim( preg_replace( '/[ \t\r\n]{2,}/', ' ', wp_strip_all_tags( $raw ) ) );
-        if ( preg_match( '/<(a|strong|em|b|i|u|span|mark|sup|sub|br)\b/i', $raw ) ) {
-            // Keep inline tags (with attributes) but drop block/script/style markup.
-            $html = trim( preg_replace( '/[ \t\r\n]{2,}/', ' ', strip_tags( $raw, '<a><strong><em><b><i><u><span><mark><sup><sub><br>' ) ) );
+        // Preserve inline formatting/link tags AND list/paragraph structure, because the
+        // rendered HTML keeps them and str_replace needs an exact substring match.
+        // (e.g. text-editor widgets holding <ul><li> bullet lists were being flattened to
+        //  newline text that never matched the rendered <ul><li> markup, so lists never
+        //  translated in ANY language.)
+        if ( preg_match( '/<(a|strong|em|b|i|u|span|mark|sup|sub|br|ul|ol|li)\b/i', $raw ) ) {
+            $html = strip_tags( $raw, '<a><strong><em><b><i><u><span><mark><sup><sub><br><ul><ol><li>' );
+            // Normalise whitespace runs the same way WordPress does when rendering.
+            $html = trim( preg_replace( '/[ \t\r\n]{2,}/', ' ', $html ) );
             if ( $html !== '' ) return array( 'value' => $html, 'type' => 'html' );
         }
         return array( 'value' => $stripped, 'type' => 'text' );
