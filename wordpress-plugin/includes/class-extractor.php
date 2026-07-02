@@ -407,6 +407,12 @@ class BT_Extractor {
             'Subscribe Now',
             'Browse Properties by Dubai Areas',
             'All rights reserved',
+            'Real Estate Marketing',
+            'Sellers Guide',
+            'Submit Testimonial',
+            'Tenant Management',
+            'Latest Dubai Projects:',
+            'Latest Dubai Projects',
         );
         return array_values( array_unique( array_merge( $seed, $list ) ) );
     }
