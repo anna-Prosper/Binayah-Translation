@@ -2,6 +2,7 @@
 const fs      = require('fs');
 const crypto  = require('crypto');
 const dataDir = require('./data-dir');
+const { atomicWrite } = require('./atomic-json');
 
 const CACHE_PATH = dataDir('translation-cache.json');
 
@@ -22,7 +23,7 @@ function schedulFlush() {
   _flushTimer = setTimeout(() => {
     _flushTimer = null;
     if (!_dirty) return;
-    try { fs.writeFileSync(CACHE_PATH, JSON.stringify(_mem)); _dirty = false; }
+    try { atomicWrite(CACHE_PATH, JSON.stringify(_mem)); _dirty = false; }
     catch {}
   }, 2000); // batch writes — flush 2s after last change
 }
@@ -75,7 +76,7 @@ function stats() {
 function clear() {
   _mem = {};
   _dirty = true;
-  try { fs.writeFileSync(CACHE_PATH, '{}'); _dirty = false; } catch {}
+  try { atomicWrite(CACHE_PATH, '{}'); _dirty = false; } catch {}
 }
 
 module.exports = { get, set, stats, clear };

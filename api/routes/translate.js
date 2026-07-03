@@ -1,11 +1,13 @@
 'use strict';
 const axios = require('axios');
-const { WP, HEADERS } = require('../lib/wp-env');
+const { WP, HEADERS, SITE_KEYS } = require('../lib/wp-env');
 const cache  = require('../lib/translation-cache');
 const freq   = require('../lib/string-frequency');
 const crypto = require('crypto');
 const jwt    = require('jsonwebtoken');
 const jwtSecret = require('../lib/jwt-secret');
+const { writeJSON } = require('../lib/atomic-json');
+const tlog   = require('../lib/tlog');
 
 function md5(text) { return crypto.createHash('md5').update(String(text)).digest('hex'); }
 
@@ -28,18 +30,19 @@ const HASH_STORE = dataDir('field-hashes.json');
 // Node-side hash store: { "{post_id}:{lang}:{field_key}": "md5hex" }
 // Used to detect stale translations without requiring WP plugin changes.
 function readHashes() { try { return JSON.parse(fs.readFileSync(HASH_STORE,'utf8')); } catch { return {}; } }
-function saveHashes(h) { fs.writeFileSync(HASH_STORE, JSON.stringify(h)); }
-function getFieldHash(post_id, lang, key) { return readHashes()[`${post_id}:${lang}:${key}`] || null; }
-function setFieldHashes(post_id, lang, fieldMap) {
+function saveHashes(h) { writeJSON(HASH_STORE, h); }
+// Keys are site-scoped so the same post_id on different WP sites can't collide.
+function getFieldHash(post_id, lang, key, site) { return readHashes()[`${site||''}:${post_id}:${lang}:${key}`] || null; }
+function setFieldHashes(post_id, lang, fieldMap, site) {
   const h = readHashes();
-  for (const [key, text] of Object.entries(fieldMap)) h[`${post_id}:${lang}:${key}`] = md5(String(text));
+  for (const [key, text] of Object.entries(fieldMap)) h[`${site||''}:${post_id}:${lang}:${key}`] = md5(String(text));
   saveHashes(h);
 }
 
 const readCfg     = () => { try { return JSON.parse(fs.readFileSync(CFG,'utf8')); } catch { return []; } };
 const readGlobal  = () => { try { return JSON.parse(fs.readFileSync(GLOBAL_CFG,'utf8')); } catch { return {api:'deepseek',model:'deepseek-chat'}; } };
 const readPageCfg = () => { try { return JSON.parse(fs.readFileSync(PAGE_CFG,'utf8')); } catch { return {}; } };
-const savePageCfg = (d) => fs.writeFileSync(PAGE_CFG, JSON.stringify(d,null,2));
+const savePageCfg = (d) => writeJSON(PAGE_CFG, d, true);
 
 function resolveApiModel(page_id, lang) {
   const g    = readGlobal();
@@ -52,16 +55,11 @@ function resolveApiModel(page_id, lang) {
   return { api, model };
 }
 
-function appendLog(entry) {
-  try {
-    const logs = fs.existsSync(TRANS_LOG) ? JSON.parse(fs.readFileSync(TRANS_LOG,'utf8')) : [];
-    logs.unshift(entry);
-    if (logs.length > 5000) logs.splice(5000);
-    fs.writeFileSync(TRANS_LOG, JSON.stringify(logs));
-  } catch(e) {}
-}
+// Append-only log (JSONL) — no 5000-row cap, O(1) appends. See lib/tlog.js.
+function appendLog(entry) { tlog.append(entry); }
 
-const jobs = new Map();
+// Persistent job store (survives restarts; running jobs become "interrupted").
+const jobs = require('../lib/job-store');
 
 // Cross-page translation memory — same text + lang = reuse across all pages within this server session
 const _xMem = new Map();
@@ -111,7 +109,7 @@ function trackUsage(lang, api, fields) {
     s.by_api[api].calls++; s.by_api[api].fields+=fields;
     s.by_language[lang].calls++; s.by_language[lang].fields+=fields;
     s.recent=[{date:new Date().toISOString().slice(0,10),lang,api,fields},...(s.recent||[])].slice(0,50);
-    fs.writeFileSync(USAGE,JSON.stringify(s,null,2));
+    writeJSON(USAGE, s, true);
   } catch {}
 }
 
@@ -369,7 +367,7 @@ async function translateBatchKeyed(fields, lang, api, model, systemPrompt) {
   return { keyedMap, tokens: totalTokens, input_tokens: totalInputTokens, output_tokens: totalOutputTokens };
 }
 
-async function runJob(job_id, page_id, language, langPrompts, forceMap) {
+async function runJob(job_id, page_id, language, langPrompts, forceMap, site) {
   forceMap = forceMap || {};
   const job = jobs.get(job_id);
   if (!job) return;
@@ -378,7 +376,7 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
   // page_id=0 is the special "global strings" bucket (nav menus etc.)
   if (page_id === 0) {
     try {
-      const r = await axios.get(WP()+'/global/content',{headers:HEADERS(),timeout:15000});
+      const r = await axios.get(WP(site)+'/global/content',{headers:HEADERS(site),timeout:15000});
       content = r.data;
     } catch(e) { job.status='error'; job.error='WordPress global fetch failed: '+e.message; return; }
   } else {
@@ -386,7 +384,7 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
     // The /html endpoint produces html:N positional keys which are unreliable
     // when page layout changes and are permanently blocked in allFields below.
     try {
-      const r = await axios.get(WP()+'/page/'+page_id+'/content',{headers:HEADERS(),timeout:15000});
+      const r = await axios.get(WP(site)+'/page/'+page_id+'/content',{headers:HEADERS(site),timeout:15000});
       content = r.data;
     } catch(e) { job.status='error'; job.error='WordPress fetch failed: '+e.message; return; }
   }
@@ -426,15 +424,15 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
     // (source changed since last run) are excluded and will be retranslated.
     let existing = {};
     const translationsUrl = page_id === 0
-      ? WP()+'/global/translations?lang='+lang
-      : WP()+'/page/'+page_id+'/translations?lang='+lang;
+      ? WP(site)+'/global/translations?lang='+lang
+      : WP(site)+'/page/'+page_id+'/translations?lang='+lang;
     const saveUrl = page_id === 0
-      ? WP()+'/global/save'
-      : WP()+'/page/'+page_id+'/save';
+      ? WP(site)+'/global/save'
+      : WP(site)+'/page/'+page_id+'/save';
 
     if (!force) {
       try {
-        const r = await axios.get(translationsUrl, {headers:HEADERS(),timeout:10000});
+        const r = await axios.get(translationsUrl, {headers:HEADERS(site),timeout:10000});
         const data = r.data || {};
         // Support both new {translations, hashes} format and legacy flat {field_key: text}
         const rawTranslations = data.translations || data;
@@ -448,7 +446,7 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
           // Collect for async wipe so they stop interfering on future renders.
           if (key.startsWith('html:')) { if (translated) htmlKeysToWipe.push(key); continue; }
           const wpHash    = hashes[key];
-          const nodeHash  = getFieldHash(page_id, lang, key);
+          const nodeHash  = getFieldHash(page_id, lang, key, site);
           const storedHash = wpHash || nodeHash;
           const currentText = fieldMap[key];
           if (storedHash && currentText !== undefined && md5(currentText) !== storedHash) {
@@ -462,7 +460,7 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
           const wipeFields = Object.fromEntries(htmlKeysToWipe.map(k => [k, '']));
           axios.post(saveUrl,
             {language_code:lang, fields:wipeFields},
-            {headers:HEADERS(), timeout:15000}
+            {headers:HEADERS(site), timeout:15000}
           ).catch(() => {});
           console.log('[BT] Wiping', htmlKeysToWipe.length, 'stale html:N keys for page', page_id, 'lang', lang);
         }
@@ -512,9 +510,9 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
       }
     } else if (useWordCache) {
       try {
-        const lr = await axios.post(WP() + '/translations/lookup',
+        const lr = await axios.post(WP(site) + '/translations/lookup',
           { lang, texts: uniqueTexts },
-          { headers: { ...HEADERS(), 'Content-Type': 'application/json' }, timeout: 15000 }
+          { headers: { ...HEADERS(site), 'Content-Type': 'application/json' }, timeout: 15000 }
         );
         globalLookup = lr.data || {};
         Object.entries(globalLookup).forEach(([t, tr]) => xmSet(t, lang, tr));
@@ -666,11 +664,11 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
     try {
       const saveRes = await axios.post(saveUrl,
         {language_code:lang,fields:translations,originals:origMap,translated_by:api+':'+(model||'default')},
-        {headers:HEADERS(),timeout:60000}
+        {headers:HEADERS(site),timeout:60000}
       );
       // Store hashes for all saved fields so stale detection works next run
       // without requiring WordPress plugin changes.
-      setFieldHashes(page_id, lang, origMap);
+      setFieldHashes(page_id, lang, origMap, site);
       if (saveRes.data && saveRes.data.saved !== undefined) {
         const apiCallCount = MORPHOLOGICALLY_COMPLEX.has(lang)
           ? Math.ceil(toTranslate.length / BATCH_SIZE)
@@ -737,11 +735,16 @@ module.exports = async function(fastify) {
   });
 
   fastify.post('/translate/page/async', async (req,reply) => {
-    const {page_id, language, api:bodyApi, model:bodyModel, prompts, force} = req.body;
+    const {page_id, language, api:bodyApi, model:bodyModel, prompts, force, env} = req.body;
     if (page_id === undefined || page_id === null) return reply.status(400).send({error:'page_id required'});
+    // Validate page_id is a non-negative integer (0 = global bucket).
+    const pid = Number(page_id);
+    if (!Number.isInteger(pid) || pid < 0) return reply.status(400).send({error:'page_id must be a non-negative integer'});
+    // Resolve the target WP site. An invalid env falls back to the active site.
+    const site = (env && SITE_KEYS().includes(env)) ? env : undefined;
     if (bodyApi || bodyModel) {
       const pageCfg = readPageCfg();
-      pageCfg[page_id] = { ...(pageCfg[page_id]||{}), ...(bodyApi?{api:bodyApi}:{}), ...(bodyModel?{model:bodyModel}:{}) };
+      pageCfg[pid] = { ...(pageCfg[pid]||{}), ...(bodyApi?{api:bodyApi}:{}), ...(bodyModel?{model:bodyModel}:{}) };
       savePageCfg(pageCfg);
     }
     // force: boolean (force re-translate this specific language) or forceMap: Record<string,boolean>
@@ -752,8 +755,8 @@ module.exports = async function(fastify) {
     const job_id = Date.now().toString(36)+Math.random().toString(36).slice(2);
     let _uid='',_uname='';
     try{const _a=req.headers.authorization||'';if(_a.startsWith('Bearer ')){const _p=jwt.verify(_a.slice(7),jwtSecret());_uid=_p.userId||'';_uname=_p.username||'';}}catch{}
-    jobs.set(job_id,{status:'running',progress:0,total:0,current_lang:'',current_field:'',page_title:'',results:null,error:null,stopped:false,paused:false,user_id:_uid,user_name:_uname});
-    runJob(job_id, page_id, language, prompts||{}, forceMap);
+    jobs.set(job_id,{status:'running',progress:0,total:0,current_lang:'',current_field:'',page_title:'',results:null,error:null,stopped:false,paused:false,user_id:_uid,user_name:_uname,env:site||''});
+    runJob(job_id, pid, language, prompts||{}, forceMap, site);
     return {job_id};
   });
 
@@ -813,10 +816,11 @@ module.exports = async function(fastify) {
   });
 
   fastify.put('/translate/field', async (req,reply) => {
-    const {page_id,language,field_key,value}=req.body;
+    const {page_id,language,field_key,value,env}=req.body;
     if (!page_id||!language||!field_key) return reply.status(400).send({error:'page_id, language, field_key required'});
+    const site = (env && SITE_KEYS().includes(env)) ? env : undefined;
     try {
-      await axios.post(WP()+'/page/'+page_id+'/save',{language_code:language,fields:{[field_key]:value},translated_by:'manual'},{headers:HEADERS(),timeout:15000});
+      await axios.post(WP(site)+'/page/'+page_id+'/save',{language_code:language,fields:{[field_key]:value},translated_by:'manual'},{headers:HEADERS(site),timeout:15000});
       return {success:true};
     } catch(e) { return reply.status(502).send({error:e.message}); }
   });
@@ -838,13 +842,14 @@ module.exports = async function(fastify) {
   // Return all language-specific URLs for a post
   fastify.get('/page-urls/:post_id', async (req, reply) => {
     const { post_id } = req.params;
+    const site = (req.query.env && SITE_KEYS().includes(req.query.env)) ? req.query.env : undefined;
     try {
-      const r = await axios.get(WP()+'/page/'+post_id+'/urls', {headers:HEADERS(),timeout:10000});
+      const r = await axios.get(WP(site)+'/page/'+post_id+'/urls', {headers:HEADERS(site),timeout:10000});
       return reply.send(r.data);
     } catch {
       // Fallback: just return the base URL from content
       try {
-        const r2 = await axios.get(WP()+'/page/'+post_id+'/content', {headers:HEADERS(),timeout:8000});
+        const r2 = await axios.get(WP(site)+'/page/'+post_id+'/content', {headers:HEADERS(site),timeout:8000});
         const url = r2.data?.url || '';
         return reply.send({ post_id, base_url: url, urls: { default: url } });
       } catch { return reply.send({ post_id, base_url: '', urls: {} }); }
@@ -854,12 +859,13 @@ module.exports = async function(fastify) {
   // Return WordPress permalink for a post (for the usage popup)
   fastify.get('/page-url/:post_id', async (req, reply) => {
     const { post_id } = req.params;
+    const site = (req.query.env && SITE_KEYS().includes(req.query.env)) ? req.query.env : undefined;
     try {
-      const r = await axios.get(WP()+'/page/'+post_id+'/content', {headers:HEADERS(),timeout:10000});
+      const r = await axios.get(WP(site)+'/page/'+post_id+'/content', {headers:HEADERS(site),timeout:10000});
       return { url: r.data?.url || '', post_title: r.data?.post_title || '' };
     } catch {
       try {
-        const r2 = await axios.get(WP()+'/page/'+post_id+'/html', {headers:HEADERS(),timeout:10000});
+        const r2 = await axios.get(WP(site)+'/page/'+post_id+'/html', {headers:HEADERS(site),timeout:10000});
         return { url: r2.data?.url || '', post_title: r2.data?.post_title || '' };
       } catch { return { url: '' }; }
     }

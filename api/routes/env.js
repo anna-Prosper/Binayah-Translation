@@ -3,6 +3,7 @@ const fs      = require('fs');
 const jwt     = require('jsonwebtoken');
 const jwtSecret = require('../lib/jwt-secret');
 const dataDir = require('../lib/data-dir');
+const { atomicWrite } = require('../lib/atomic-json');
 
 const CONFIG_PATH = dataDir('env-config.json');
 
@@ -12,7 +13,7 @@ function readConfig() {
 }
 
 function writeConfig(cfg) {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+  atomicWrite(CONFIG_PATH, JSON.stringify(cfg, null, 2));
 }
 
 function guard(req, reply) {

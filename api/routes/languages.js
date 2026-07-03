@@ -4,9 +4,10 @@ const jwt     = require('jsonwebtoken');
 const jwtSecret = require('../lib/jwt-secret');
 const dataDir = require('../lib/data-dir');
 const CFG     = dataDir('language-config.json');
+const { atomicWrite } = require('../lib/atomic-json');
 
 const read  = () => { try { return JSON.parse(fs.readFileSync(CFG,'utf8')); } catch { return []; } };
-const save  = (d) => fs.writeFileSync(CFG, JSON.stringify(d, null, 2));
+const save  = (d) => atomicWrite(CFG, JSON.stringify(d, null, 2));
 const auth  = (req, reply) => {
   const a = req.headers.authorization || '';
   if (!a.startsWith('Bearer ')) { reply.status(401).send({ error:'Unauthorized' }); return false; }

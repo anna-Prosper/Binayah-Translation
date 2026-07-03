@@ -1,13 +1,8 @@
 'use strict';
-const fs      = require('fs');
-const dataDir = require('../lib/data-dir');
+const tlog = require('../lib/tlog');
 
-const LOG_FILE = dataDir('translation-log.json');
-
-function readLog() {
-  try { return JSON.parse(fs.readFileSync(LOG_FILE, 'utf8')); }
-  catch { return []; }
-}
+// Newest-first, matching the previous array order.
+function readLog() { return tlog.readAll(); }
 
 module.exports = async function(fastify) {
   fastify.get('/translation-log', async (req) => {

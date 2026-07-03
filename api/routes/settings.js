@@ -4,6 +4,7 @@ const axios   = require('axios');
 const jwt     = require('jsonwebtoken');
 const jwtSecret = require('../lib/jwt-secret');
 const dataDir = require('../lib/data-dir');
+const { atomicWrite } = require('../lib/atomic-json');
 
 module.exports = async function (fastify) {
   const envPath       = path.join(__dirname, '../.env');
@@ -75,7 +76,7 @@ module.exports = async function (fastify) {
       }
     }
 
-    fs.writeFileSync(envPath, env);
+    atomicWrite(envPath, env);
     require('dotenv').config({ override: true });
     return { success: true };
   });
@@ -88,7 +89,7 @@ module.exports = async function (fastify) {
     if (api !== undefined)    cfg.api    = api;
     if (model !== undefined)  cfg.model  = model;
     if (prompt !== undefined) cfg.prompt = prompt;
-    fs.writeFileSync(globalCfgPath, JSON.stringify(cfg, null, 2));
+    atomicWrite(globalCfgPath, JSON.stringify(cfg, null, 2));
     return { success: true };
   });
 

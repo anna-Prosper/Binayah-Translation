@@ -27,18 +27,18 @@ function decodeToken(req) {
 }
 
 
-const USERS_PATH = path.join(__dirname, '../users.json');
-const LOG_PATH   = path.join(__dirname, '../translation-log.json');
+// Use DATA_DIR (persistent disk on Render) — the previous __dirname paths read
+// the ephemeral checkout copy, so analytics saw stale/empty data in production.
+const dataDir    = require('../lib/data-dir');
+const tlog       = require('../lib/tlog');
+const USERS_PATH = dataDir('users.json');
 
 function readUsers() {
   try { return JSON.parse(fs.readFileSync(USERS_PATH, 'utf8')); }
   catch { return []; }
 }
 
-function readLog() {
-  try { return JSON.parse(fs.readFileSync(LOG_PATH, 'utf8')); }
-  catch { return []; }
-}
+function readLog() { return tlog.readAll(); }
 
 module.exports = async function (fastify) {
 

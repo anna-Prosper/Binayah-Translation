@@ -2,6 +2,7 @@
 const fs      = require('fs');
 const crypto  = require('crypto');
 const dataDir = require('./data-dir');
+const { atomicWrite } = require('./atomic-json');
 
 const FREQ_PATH = dataDir('string-frequency.json');
 
@@ -21,7 +22,7 @@ function scheduleFlush() {
   _timer = setTimeout(() => {
     _timer = null;
     if (!_dirty) return;
-    try { fs.writeFileSync(FREQ_PATH, JSON.stringify(_mem)); _dirty = false; }
+    try { atomicWrite(FREQ_PATH, JSON.stringify(_mem)); _dirty = false; }
     catch {}
   }, 2000);
 }

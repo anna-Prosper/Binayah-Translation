@@ -3,11 +3,11 @@ const jwt     = require('jsonwebtoken');
 const jwtSecret = require('../lib/jwt-secret');
 const fs      = require('fs');
 const dataDir = require('../lib/data-dir');
+const tlog    = require('../lib/tlog');
 
-const TRANS_LOG  = dataDir('translation-log.json');
 const USERS_PATH = dataDir('users.json');
 
-function readLog()   { try { return JSON.parse(fs.readFileSync(TRANS_LOG,  'utf8')); } catch { return []; } }
+function readLog()   { return tlog.readAll(); }
 function readUsers() { try { return JSON.parse(fs.readFileSync(USERS_PATH, 'utf8')); } catch { return []; } }
 
 function authPayload(req) {

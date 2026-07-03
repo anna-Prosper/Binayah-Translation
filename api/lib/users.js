@@ -4,9 +4,10 @@ const bcrypt  = require('bcryptjs');
 const dataDir = require('./data-dir');
 
 const FILE = dataDir('users.json');
+const { atomicWrite } = require('./atomic-json');
 
 function read()          { try { return JSON.parse(fs.readFileSync(FILE,'utf8')); } catch { return []; } }
-function write(users)    { fs.writeFileSync(FILE, JSON.stringify(users, null, 2)); }
+function write(users)    { atomicWrite(FILE, JSON.stringify(users, null, 2)); }
 function byId(id)        { return read().find(u => u.id === id) || null; }
 function byUsername(usr) { return read().find(u => u.username.toLowerCase() === usr.toLowerCase()) || null; }
 const hash   = (p)    => bcrypt.hash(p, 10);
