@@ -5,6 +5,7 @@ const cache  = require('../lib/translation-cache');
 const freq   = require('../lib/string-frequency');
 const crypto = require('crypto');
 const jwt    = require('jsonwebtoken');
+const jwtSecret = require('../lib/jwt-secret');
 
 function md5(text) { return crypto.createHash('md5').update(String(text)).digest('hex'); }
 
@@ -696,7 +697,7 @@ module.exports = async function(fastify) {
   fastify.addHook('preHandler', async (req, reply) => {
     const a = req.headers.authorization || '';
     if (!a.startsWith('Bearer ')) return reply.code(401).send({ error: 'Unauthorized' });
-    try { jwt.verify(a.slice(7), process.env.ADMIN_SECRET); }
+    try { jwt.verify(a.slice(7), jwtSecret()); }
     catch { return reply.code(401).send({ error: 'Invalid token' }); }
   });
 
@@ -705,7 +706,7 @@ module.exports = async function(fastify) {
   });
 
   fastify.post('/cache/clear', async (req, reply) => {
-    try { const token=(req.headers.authorization||'').replace('Bearer ',''); const p=jwt.verify(token,process.env.ADMIN_SECRET); if (p.role!=='superadmin') return reply.status(403).send({error:'Superadmin only'}); } catch { return reply.status(401).send({error:'Unauthorized'}); }
+    try { const token=(req.headers.authorization||'').replace('Bearer ',''); const p=jwt.verify(token,jwtSecret()); if (p.role!=='superadmin') return reply.status(403).send({error:'Superadmin only'}); } catch { return reply.status(401).send({error:'Unauthorized'}); }
     cache.clear();
     return { success: true, message: 'Cache cleared' };
   });
@@ -750,7 +751,7 @@ module.exports = async function(fastify) {
 
     const job_id = Date.now().toString(36)+Math.random().toString(36).slice(2);
     let _uid='',_uname='';
-    try{const _a=req.headers.authorization||'';if(_a.startsWith('Bearer ')){const _p=jwt.verify(_a.slice(7),process.env.ADMIN_SECRET);_uid=_p.userId||'';_uname=_p.username||'';}}catch{}
+    try{const _a=req.headers.authorization||'';if(_a.startsWith('Bearer ')){const _p=jwt.verify(_a.slice(7),jwtSecret());_uid=_p.userId||'';_uname=_p.username||'';}}catch{}
     jobs.set(job_id,{status:'running',progress:0,total:0,current_lang:'',current_field:'',page_title:'',results:null,error:null,stopped:false,paused:false,user_id:_uid,user_name:_uname});
     runJob(job_id, page_id, language, prompts||{}, forceMap);
     return {job_id};

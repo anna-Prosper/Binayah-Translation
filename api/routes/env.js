@@ -1,6 +1,7 @@
 'use strict';
 const fs      = require('fs');
 const jwt     = require('jsonwebtoken');
+const jwtSecret = require('../lib/jwt-secret');
 const dataDir = require('../lib/data-dir');
 
 const CONFIG_PATH = dataDir('env-config.json');
@@ -18,7 +19,7 @@ function guard(req, reply) {
   const auth = req.headers.authorization || '';
   if (!auth.startsWith('Bearer ')) { reply.status(401).send({ error: 'Unauthorized' }); return null; }
   try {
-    const p = jwt.verify(auth.slice(7), process.env.ADMIN_SECRET);
+    const p = jwt.verify(auth.slice(7), jwtSecret());
     if (p.role !== 'superadmin') { reply.status(403).send({ error: 'Superadmin only' }); return null; }
     return p;
   } catch { reply.status(401).send({ error: 'Invalid token' }); return null; }

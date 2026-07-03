@@ -1,6 +1,7 @@
 'use strict';
 const fs      = require('fs');
 const jwt     = require('jsonwebtoken');
+const jwtSecret = require('../lib/jwt-secret');
 const dataDir = require('../lib/data-dir');
 const CFG     = dataDir('language-config.json');
 
@@ -9,7 +10,7 @@ const save  = (d) => fs.writeFileSync(CFG, JSON.stringify(d, null, 2));
 const auth  = (req, reply) => {
   const a = req.headers.authorization || '';
   if (!a.startsWith('Bearer ')) { reply.status(401).send({ error:'Unauthorized' }); return false; }
-  try { jwt.verify(a.slice(7), process.env.ADMIN_SECRET); return true; }
+  try { jwt.verify(a.slice(7), jwtSecret()); return true; }
   catch { reply.status(401).send({ error:'Invalid token' }); return false; }
 };
 

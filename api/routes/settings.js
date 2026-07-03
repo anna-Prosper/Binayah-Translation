@@ -2,6 +2,7 @@ const fs      = require('fs');
 const path    = require('path');
 const axios   = require('axios');
 const jwt     = require('jsonwebtoken');
+const jwtSecret = require('../lib/jwt-secret');
 const dataDir = require('../lib/data-dir');
 
 module.exports = async function (fastify) {
@@ -12,7 +13,7 @@ module.exports = async function (fastify) {
   fastify.addHook('preHandler', async (req, reply) => {
     const a = req.headers.authorization || '';
     if (!a.startsWith('Bearer ')) return reply.code(401).send({ error: 'Unauthorized' });
-    try { jwt.verify(a.slice(7), process.env.ADMIN_SECRET); }
+    try { jwt.verify(a.slice(7), jwtSecret()); }
     catch { return reply.code(401).send({ error: 'Invalid token' }); }
   });
 

@@ -8,6 +8,7 @@ const fs      = require('fs');
 const path    = require('path');
 const axios   = require('axios');
 const jwt     = require('jsonwebtoken');
+const jwtSecret = require('../lib/jwt-secret');
 const { WP, HEADERS, SITE_KEYS, getConfigForSite } = require('../lib/wp-env');
 
 const PLUGIN_DIR = path.resolve(__dirname, '../../wordpress-plugin');
@@ -26,7 +27,7 @@ function isSuperAdmin(req) {
   try {
     const h = req.headers.authorization || '';
     if (!h.startsWith('Bearer ')) return false;
-    const p = jwt.verify(h.slice(7), process.env.ADMIN_SECRET);
+    const p = jwt.verify(h.slice(7), jwtSecret());
     return p.role === 'superadmin';
   } catch { return false; }
 }

@@ -1,10 +1,11 @@
 'use strict';
 const jwt = require('jsonwebtoken');
+const jwtSecret = require('../lib/jwt-secret');
 const { byUsername, verify, read, write, safe, initSuperAdmin } = require('../lib/users');
 
 const sign = (u) => jwt.sign(
   { userId: u.id, username: u.username, role: u.role, permissions: u.permissions },
-  process.env.ADMIN_SECRET, { expiresIn: '7d' }
+  jwtSecret(), { expiresIn: '7d' }
 );
 
 module.exports = async function(fastify) {
@@ -47,7 +48,7 @@ module.exports = async function(fastify) {
     const auth = req.headers.authorization || '';
     if (!auth.startsWith('Bearer ')) return reply.status(401).send({ error: 'Unauthorized' });
     try {
-      const p = jwt.verify(auth.slice(7), process.env.ADMIN_SECRET);
+      const p = jwt.verify(auth.slice(7), jwtSecret());
       const users = read();
       const user = users.find(function(u) { return u.id === p.userId; });
       if (!user) return reply.status(404).send({ error: 'User not found' });
@@ -62,7 +63,7 @@ module.exports = async function(fastify) {
     const auth = req.headers.authorization || '';
     if (!auth.startsWith('Bearer ')) return { valid: false };
     try {
-      const p = jwt.verify(auth.slice(7), process.env.ADMIN_SECRET);
+      const p = jwt.verify(auth.slice(7), jwtSecret());
       return { valid: true, ...p };
     } catch { return { valid: false }; }
   });

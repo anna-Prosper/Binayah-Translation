@@ -1,5 +1,6 @@
 const axios = require('axios');
 const jwt   = require('jsonwebtoken');
+const jwtSecret = require('../lib/jwt-secret');
 const { WP, HEADERS, SITE_KEYS } = require('../lib/wp-env');
 const fs    = require('fs');
 const path  = require('path');
@@ -21,7 +22,7 @@ function decodeToken(req) {
   try {
     const auth = req.headers.authorization || '';
     if (!auth.startsWith('Bearer ')) return null;
-    return jwt.verify(auth.slice(7), process.env.ADMIN_SECRET);
+    return jwt.verify(auth.slice(7), jwtSecret());
   } catch { return null; }
 }
 

@@ -1,5 +1,6 @@
 'use strict';
 const jwt     = require('jsonwebtoken');
+const jwtSecret = require('../lib/jwt-secret');
 const fs      = require('fs');
 const dataDir = require('../lib/data-dir');
 
@@ -12,7 +13,7 @@ function readUsers() { try { return JSON.parse(fs.readFileSync(USERS_PATH, 'utf8
 function authPayload(req) {
   const h = req.headers.authorization || '';
   if (!h.startsWith('Bearer ')) return null;
-  try { return jwt.verify(h.slice(7), process.env.ADMIN_SECRET); } catch { return null; }
+  try { return jwt.verify(h.slice(7), jwtSecret()); } catch { return null; }
 }
 
 module.exports = async function (fastify) {
