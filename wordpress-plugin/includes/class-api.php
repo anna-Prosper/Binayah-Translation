@@ -46,8 +46,16 @@ class BT_API {
     }
 
     public static function check_auth( $request ) {
-        $key = $request->get_header( 'X-Binayah-API-Key' );
-        return $key === get_option( 'bt_api_key' );
+        $key    = (string) $request->get_header( 'X-Binayah-API-Key' );
+        $stored = (string) get_option( 'bt_api_key', '' );
+        // Reject when no key is configured, and use a timing-safe comparison.
+        if ( $stored === '' || $key === '' ) return false;
+        return hash_equals( $stored, $key );
+    }
+
+    // Alias kept for a route that referenced check_api_key (previously undefined).
+    public static function check_api_key( $request ) {
+        return self::check_auth( $request );
     }
 
     public static function register_routes() {
@@ -774,27 +782,46 @@ class BT_API {
         $written     = array();
         $failed      = array();
 
-        foreach ( $files as $rel_path => $b64_content ) {
-            // Sanitize: only allow paths within the plugin directory, no traversal
-            $rel_path = ltrim( str_replace( '..', '', $rel_path ), '/\\' );
-            if ( empty( $rel_path ) ) continue;
+        // Only these exact plugin files may be overwritten — an explicit allowlist
+        // so this endpoint cannot be used to drop arbitrary PHP anywhere.
+        $allowed = array(
+            'binayah-translate.php',
+            'includes/class-api.php',
+            'includes/class-database.php',
+            'includes/class-extractor.php',
+            'includes/class-frontend.php',
+            'includes/class-languages.php',
+            'includes/class-settings.php',
+        );
 
-            $abs_path = $plugin_root . $rel_path;
-            if ( strpos( realpath( dirname( $abs_path ) ) . '/', $plugin_root ) !== 0 ) {
+        foreach ( $files as $rel_path => $b64_content ) {
+            // Normalise separators; reject anything not on the allowlist.
+            $rel_norm = ltrim( str_replace( '\\', '/', (string) $rel_path ), '/' );
+            if ( ! in_array( $rel_norm, $allowed, true ) ) {
+                $failed[] = $rel_path . ' (not an allowed plugin file)';
+                continue;
+            }
+
+            $abs_path = $plugin_root . $rel_norm;
+            // Belt-and-braces: the resolved parent dir must sit inside the plugin root.
+            $parent = realpath( dirname( $abs_path ) );
+            if ( $parent === false || strpos( trailingslashit( $parent ), $plugin_root ) !== 0 ) {
                 $failed[] = $rel_path . ' (path traversal blocked)';
                 continue;
             }
 
-            $content = base64_decode( $b64_content, true );
+            $content = base64_decode( (string) $b64_content, true );
             if ( $content === false ) { $failed[] = $rel_path . ' (bad base64)'; continue; }
-
-            $dir = dirname( $abs_path );
-            if ( ! is_dir( $dir ) ) wp_mkdir_p( $dir );
+            // Every allowed file is PHP — require a PHP opening tag as a sanity guard.
+            if ( strpos( $content, '<?php' ) === false ) {
+                $failed[] = $rel_path . ' (not a PHP file)';
+                continue;
+            }
 
             if ( file_put_contents( $abs_path, $content ) === false ) {
                 $failed[] = $rel_path . ' (write failed)';
             } else {
-                $written[] = $rel_path;
+                $written[] = $rel_norm;
                 if ( function_exists( 'opcache_invalidate' ) ) opcache_invalidate( $abs_path, true );
             }
         }
