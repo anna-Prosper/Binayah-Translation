@@ -24,7 +24,11 @@ function modelAllowed(u, model)   { if (!u || isSuperAdmin(u)) return true; cons
 async function initSuperAdmin() {
   const users = read();
   if (users.length === 0) {
-    const h = await hash(process.env.ADMIN_SECRET || 'BinayahAdmin2024!');
+    if (!process.env.ADMIN_SECRET) {
+      console.error('[Users] ADMIN_SECRET not set — refusing to seed a default superadmin with a hardcoded password. Set ADMIN_SECRET and restart.');
+      return;
+    }
+    const h = await hash(process.env.ADMIN_SECRET);
     write([{
       id: 'superadmin',
       username: 'admin',

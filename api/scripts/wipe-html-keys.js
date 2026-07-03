@@ -5,18 +5,19 @@
  */
 const axios = require('axios');
 
+// Keys from env: WP_KEY_TEMP / WP_KEY_STAGING — never hardcode secrets.
 const SITES = [
   {
     name: 'temp',
     base: 'https://binayah-temp.fixed-staging.co.uk/wp-json/btranslate/v1',
-    key:  'dfba88421bd8980b6b28be7a6dfef9af19f9cad5027087206c5b05ddec5eba6c',
+    key:  process.env.WP_KEY_TEMP,
   },
   {
     name: 'staging',
     base: 'https://binayahcom.fixed-staging.co.uk/wp-json/btranslate/v1',
-    key:  '9d1d8ef7aa255829f16aaff13067f5a8f463837663c8f7fbe35696c49a3a4ff6',
+    key:  process.env.WP_KEY_STAGING,
   },
-];
+].filter(s => s.key || (console.warn(`[wipe] skipping ${s.name}: set WP_KEY_${s.name.toUpperCase()}`), false));
 
 const CONCURRENCY = 8;
 const BATCH_SIZE  = 100; // keys per WP save call

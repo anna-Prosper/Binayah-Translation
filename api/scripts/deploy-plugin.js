@@ -13,20 +13,25 @@ const path    = require('path');
 const axios   = require('axios');
 const AdmZip  = require('adm-zip');
 
+// Site keys come from env vars — NEVER hardcode secrets in source.
+//   WP_KEY_TEMP=... WP_KEY_STAGING=... node api/scripts/deploy-plugin.js
 const SITES = [
   {
     name: 'temp',
     base: 'https://binayah-temp.fixed-staging.co.uk/wp-json/btranslate/v1',
-    key:  'dfba88421bd8980b6b28be7a6dfef9af19f9cad5027087206c5b05ddec5eba6c',
+    key:  process.env.WP_KEY_TEMP,
     wpBase: 'https://binayah-temp.fixed-staging.co.uk',
   },
   {
     name: 'staging',
     base: 'https://binayahcom.fixed-staging.co.uk/wp-json/btranslate/v1',
-    key:  '9d1d8ef7aa255829f16aaff13067f5a8f463837663c8f7fbe35696c49a3a4ff6',
+    key:  process.env.WP_KEY_STAGING,
     wpBase: 'https://binayahcom.fixed-staging.co.uk',
   },
-];
+].filter(s => {
+  if (!s.key) { console.warn(`[deploy] skipping ${s.name}: set WP_KEY_${s.name.toUpperCase()} env var`); return false; }
+  return true;
+});
 
 const PLUGIN_DIR = path.resolve(__dirname, '../../wordpress-plugin');
 

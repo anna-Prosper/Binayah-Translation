@@ -12,8 +12,9 @@
 const jwt   = require('jsonwebtoken');
 const axios = require('axios');
 
-const API    = 'https://binayah-translation-api.onrender.com';
-const SECRET = process.env.ADMIN_SECRET || 'BinayahAdmin2024!';
+const API    = process.env.BT_API_URL || 'https://binayah-translation-api.onrender.com';
+const SECRET = process.env.ADMIN_SECRET;
+if (!SECRET) { console.error('ADMIN_SECRET env var required (no hardcoded fallback).'); process.exit(1); }
 const token  = jwt.sign({ id: 'superadmin', role: 'superadmin', username: 'admin' }, SECRET, { expiresIn: '12h' });
 const H      = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
 

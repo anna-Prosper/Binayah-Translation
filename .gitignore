@@ -36,3 +36,6 @@ api/global-config.json
 # Environment config with API keys and site credentials - NEVER commit
 api/env-config.json
 api/sites.json
+
+# Per-site runtime AI config
+api/data/**/ai-config.json
