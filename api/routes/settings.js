@@ -1,11 +1,20 @@
 const fs      = require('fs');
 const path    = require('path');
 const axios   = require('axios');
+const jwt     = require('jsonwebtoken');
 const dataDir = require('../lib/data-dir');
 
 module.exports = async function (fastify) {
   const envPath       = path.join(__dirname, '../.env');
   const globalCfgPath = dataDir('global-config.json');
+
+  // Settings expose/modify API keys and global model config — admin-only.
+  fastify.addHook('preHandler', async (req, reply) => {
+    const a = req.headers.authorization || '';
+    if (!a.startsWith('Bearer ')) return reply.code(401).send({ error: 'Unauthorized' });
+    try { jwt.verify(a.slice(7), process.env.ADMIN_SECRET); }
+    catch { return reply.code(401).send({ error: 'Invalid token' }); }
+  });
 
   function getEnvVal(key) {
     const env = fs.readFileSync(envPath, 'utf8');

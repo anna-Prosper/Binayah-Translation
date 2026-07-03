@@ -690,8 +690,17 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap) {
 
 module.exports = async function(fastify) {
 
+  // Require a valid admin JWT for every route in this plugin. All translate/*
+  // endpoints are admin-only (the WordPress sites never call them); leaving them
+  // open allowed anyone to trigger paid jobs and write content/config.
+  fastify.addHook('preHandler', async (req, reply) => {
+    const a = req.headers.authorization || '';
+    if (!a.startsWith('Bearer ')) return reply.code(401).send({ error: 'Unauthorized' });
+    try { jwt.verify(a.slice(7), process.env.ADMIN_SECRET); }
+    catch { return reply.code(401).send({ error: 'Invalid token' }); }
+  });
+
   fastify.get('/cache/stats', async (req, reply) => {
-    try { const token=(req.headers.authorization||'').replace('Bearer ',''); jwt.verify(token,process.env.ADMIN_SECRET); } catch { return reply.status(401).send({error:'Unauthorized'}); }
     return cache.stats();
   });
 
