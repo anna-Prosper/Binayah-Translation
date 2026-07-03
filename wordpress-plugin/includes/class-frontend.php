@@ -25,6 +25,9 @@ class BT_Frontend {
         add_filter( 'the_title',            array( __CLASS__, 'filter_title' ), 20, 2 );
         add_filter( 'the_excerpt',          array( __CLASS__, 'filter_excerpt' ), 20 );
         add_filter( 'document_title_parts', array( __CLASS__, 'filter_doc_title' ), 20 );
+        // Nav menu labels are translated here (scoped to real menu items) rather than
+        // via whole-page substring replacement, which corrupted body text (H1).
+        add_filter( 'nav_menu_item_title',  array( __CLASS__, 'filter_nav_menu_item_title' ), 20, 2 );
 
         if ( function_exists( 'acf_add_filter_modifiers' ) || class_exists( 'ACF' ) ) {
             add_filter( 'acf/load_value', array( __CLASS__, 'filter_acf_value' ), 20, 3 );
@@ -205,11 +208,50 @@ class BT_Frontend {
 
     // ── Text replacement — the heart of frontend delivery ──────────────────
 
+    // Bumped whenever a translation is saved (see class-api.php) so cached
+    // replacement maps invalidate immediately after an edit.
+    private static function tx_version() { return (int) get_option( 'bt_tx_ver', 0 ); }
+
+    /**
+     * Apply translations to the rendered HTML in a SINGLE strtr() pass using a
+     * cached replacement map. strtr replaces the longest matching key at each
+     * position, left-to-right, and never re-scans already-replaced output — so
+     * one pass is both far faster than the old up-to-5N str_replace passes and
+     * safer (a translated value that happens to contain an English word won't be
+     * re-translated).
+     */
     private static function apply_text_translations( $html, $post_id, $lang ) {
+        $map = self::get_replacement_map( $post_id, $lang );
+        if ( empty( $map ) ) return $html;
+        return strtr( $html, $map );
+    }
+
+    /**
+     * Build (and cache) the search→replace map for a post+language. Cached in a
+     * transient keyed by post_id, lang, post_modified and the global tx version,
+     * so it is rebuilt only when the page content or a translation actually
+     * changes — not on every request (the previous code re-queried the DB and
+     * re-parsed the whole Elementor tree on every non-English page view).
+     */
+    private static function get_replacement_map( $post_id, $lang ) {
+        $modified = 0;
+        if ( $post_id > 0 ) {
+            $p = get_post( $post_id );
+            $modified = $p ? strtotime( $p->post_modified_gmt ) : 0;
+        }
+        $cache_key = 'bt_map_' . $post_id . '_' . $lang . '_' . $modified . '_' . self::tx_version();
+        $cached = get_transient( $cache_key );
+        if ( is_array( $cached ) ) return $cached;
+
+        $map = self::build_replacement_map( $post_id, $lang );
+        set_transient( $cache_key, $map, 12 * HOUR_IN_SECONDS );
+        return $map;
+    }
+
+    private static function build_replacement_map( $post_id, $lang ) {
         global $wpdb;
         $table = BT_Database::table();
 
-        // Current-language translations
         $rows = $wpdb->get_results( $wpdb->prepare(
             "SELECT field_key, original_text, translated_text FROM {$table}
              WHERE post_id=%d AND language_code=%s AND status='done'
@@ -217,10 +259,9 @@ class BT_Frontend {
             $post_id, $lang
         ), ARRAY_A );
 
-        if ( empty( $rows ) ) return $html;
+        if ( empty( $rows ) ) return array();
 
         // Live extracted values for this post (ensures we match against current HTML content).
-        // post_id=0 is the global nav bucket — use nav-menu extraction (no real post exists).
         if ( $post_id === 0 ) {
             $extracted = BT_Extractor::extract_nav_menus();
         } else {
@@ -228,16 +269,10 @@ class BT_Frontend {
             $extracted = $post ? BT_Extractor::extract( $post ) : array();
         }
 
-        // Index current-lang translated_text by field_key (for cross-lang lookup below)
         $current_by_field = array();
-        foreach ( $rows as $row ) {
-            $current_by_field[ $row['field_key'] ] = $row['translated_text'];
-        }
+        foreach ( $rows as $row ) $current_by_field[ $row['field_key'] ] = $row['translated_text'];
 
         // ── Cross-language safety net ────────────────────────────────────────
-        // If another language's text leaked into the HTML (e.g. Arabic on a Russian page)
-        // replace it with: the current-language translation if we have one, OR the
-        // original English text as a fallback so we never show the wrong language.
         $other_rows = $wpdb->get_results( $wpdb->prepare(
             "SELECT field_key, original_text, translated_text FROM {$table}
              WHERE post_id=%d AND language_code != %s AND status='done'
@@ -245,127 +280,118 @@ class BT_Frontend {
             $post_id, $lang
         ), ARRAY_A );
 
-        // Build field_key → original_english map from other-language rows (same original for all langs)
         $orig_english = array();
         foreach ( $other_rows as $orow ) {
             $fk = $orow['field_key'];
-            if ( ! isset( $orig_english[ $fk ] ) && ! empty( $orow['original_text'] ) ) {
-                $orig_english[ $fk ] = $orow['original_text'];
-            }
+            if ( ! isset( $orig_english[ $fk ] ) && ! empty( $orow['original_text'] ) ) $orig_english[ $fk ] = $orow['original_text'];
         }
 
         $cross_pairs = array();
         foreach ( $other_rows as $orow ) {
-            $fk    = $orow['field_key'];
-            $other = $orow['translated_text'];
+            $fk = $orow['field_key']; $other = $orow['translated_text'];
             if ( empty( $other ) ) continue;
-
             if ( isset( $current_by_field[ $fk ] ) ) {
-                // Have a current-lang translation → replace other-lang text with it
-                $curr = $current_by_field[ $fk ];
-                if ( $other !== $curr ) {
-                    $cross_pairs[] = array( 'orig' => $other, 'trans' => $curr );
-                }
+                if ( $other !== $current_by_field[ $fk ] ) $cross_pairs[] = array( $other, $current_by_field[ $fk ] );
             } elseif ( isset( $orig_english[ $fk ] ) ) {
-                // No current-lang translation yet → fall back to original English
-                // (better to show English than the wrong language)
-                $eng = $orig_english[ $fk ];
-                if ( $other !== $eng ) {
-                    $cross_pairs[] = array( 'orig' => $other, 'trans' => $eng );
-                }
+                if ( $other !== $orig_english[ $fk ] ) $cross_pairs[] = array( $other, $orig_english[ $fk ] );
             }
         }
 
-        // ── Primary replacement pairs (English original → current lang) ──────
-        $pairs_p1 = array(); // Priority 1: live-extracted orig (matches rendered HTML exactly)
-        $pairs_p2 = array(); // Priority 2: stored original_text (from bulk job html: keys)
+        // ── Primary pairs (English original → current lang) ─────────────────
+        $pairs_p1 = array(); $pairs_p2 = array();
         foreach ( $rows as $row ) {
             $field_key  = $row['field_key'];
             $translated = $row['translated_text'];
             if ( empty( $translated ) ) continue;
 
-            // Priority 1: live extracted value (guaranteed to match rendered HTML)
+            // H1: nav menu items (post_id=0, key nav:*:title) are translated directly
+            // via the nav_menu_item_title filter (scoped to actual menu items). Applying
+            // them here as whole-page substring replacements corrupted body text
+            // (e.g. "Townhouse for Sale in Dubai" → "Townhouse for Продажа in Dubai").
+            if ( $post_id === 0 && strpos( $field_key, 'nav:' ) === 0 ) continue;
+
             if ( isset( $extracted[ $field_key ] ) ) {
                 $orig_data = $extracted[ $field_key ];
                 $orig = is_array( $orig_data ) ? ( $orig_data['value'] ?? '' ) : (string) $orig_data;
-                if ( ! empty( $orig ) && $orig !== $translated ) {
-                    $pairs_p1[] = array( 'orig' => $orig, 'trans' => $translated );
-                    continue;
-                }
+                if ( ! empty( $orig ) && $orig !== $translated ) { $pairs_p1[] = array( $orig, $translated ); continue; }
             }
-
-            // Priority 2: stored original_text
             if ( ! empty( $row['original_text'] ) && $row['original_text'] !== $translated ) {
-                $pairs_p2[] = array( 'orig' => $row['original_text'], 'trans' => $translated );
+                $pairs_p2[] = array( $row['original_text'], $translated );
             }
         }
 
-        // Merge P1 first, then P2; deduplicate by orig so P1 (manual edits) always win
-        $pairs    = array_merge( $pairs_p1, $pairs_p2 );
-        $seen     = array();
-        $deduped  = array();
-        foreach ( $pairs as $pair ) {
-            $key = md5( $pair['orig'] );
-            if ( isset( $seen[ $key ] ) ) continue;
-            $seen[ $key ] = true;
-            $deduped[] = $pair;
-        }
-
-        // Merge: primary replacements first, cross-language fallback after
-        $all_pairs = array_merge( $deduped, $cross_pairs );
-        if ( empty( $all_pairs ) ) return $html;
-
-        // Longest strings first — prevents partial/nested replacement errors
-        usort( $all_pairs, function( $a, $b ) {
-            return mb_strlen( $b['orig'] ) - mb_strlen( $a['orig'] );
-        } );
-
-        foreach ( $all_pairs as $pair ) {
-            $orig  = $pair['orig'];
-            $trans = $pair['trans'];
-            if ( empty( $orig ) || $orig === $trans ) continue;
-
-            // Try 1: exact match
-            $html = str_replace( $orig, $trans, $html );
-
-            // Try 2: HTML entity encoded (e.g. & → &amp;)
-            $encoded = htmlspecialchars( $orig, ENT_QUOTES | ENT_HTML5, 'UTF-8', false );
-            if ( $encoded !== $orig ) {
-                $html = str_replace( $encoded, $trans, $html );
-            }
-
-            // Try 3: WordPress smart quotes (&#8216; &#8217; &#8220; &#8221; etc.)
-            $smart = str_replace(
-                array( "\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}", "\u{2013}", "\u{2014}", "\u{2026}" ),
-                array( '&#8216;',  '&#8217;',  '&#8220;',  '&#8221;',  '&#8211;',  '&#8212;',  '&#8230;' ),
-                $orig
-            );
-            if ( $smart !== $orig && $smart !== $encoded ) {
-                $html = str_replace( $smart, $trans, $html );
-            }
-
-            // Try 4: full wptexturize() — WordPress runs this on rendered content, so
-            // ASCII straight quotes/apostrophes/dashes in the stored original become
-            // curly-quote entities in the HTML. Replicate that so the original matches.
-            // e.g. Dubai's  ->  Dubai&#8217;s ,  "off-plan"  ->  &#8220;off-plan&#8221;
-            if ( function_exists( 'wptexturize' ) ) {
-                $textured = wptexturize( $orig );
-                // wptexturize emits UTF-8 curly chars; the page outputs numeric entities.
-                $textured_ent = str_replace(
-                    array( "\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}", "\u{2013}", "\u{2014}", "\u{2026}", "\u{00A0}" ),
-                    array( '&#8216;',  '&#8217;',  '&#8220;',  '&#8221;',  '&#8211;',  '&#8212;',  '&#8230;', '&nbsp;' ),
-                    $textured
-                );
-                if ( $textured !== $orig && $textured !== $smart ) {
-                    $html = str_replace( $textured, $trans, $html );
-                }
-                if ( $textured_ent !== $textured && $textured_ent !== $smart ) {
-                    $html = str_replace( $textured_ent, $trans, $html );
-                }
+        // Merge P1 first (manual/live wins), then P2, then cross-language fallback.
+        // Dedup by orig so an earlier (higher-priority) pair is not overwritten.
+        $map  = array();
+        $seen = array();
+        foreach ( array_merge( $pairs_p1, $pairs_p2, $cross_pairs ) as $pair ) {
+            list( $orig, $trans ) = $pair;
+            if ( $orig === '' || $orig === $trans ) continue;
+            $k = md5( $orig );
+            if ( isset( $seen[ $k ] ) ) continue;
+            $seen[ $k ] = true;
+            // Add every rendered variant of the original as a strtr key → translation.
+            foreach ( self::orig_variants( $orig ) as $variant ) {
+                if ( $variant !== '' && ! isset( $map[ $variant ] ) ) $map[ $variant ] = $trans;
             }
         }
+        return $map;
+    }
 
-        return $html;
+    /**
+     * All the forms a stored original can take once WordPress renders it, so the
+     * single strtr pass matches regardless: raw, HTML-entity-encoded, smart quotes,
+     * and full wptexturize (ASCII quotes/dashes → curly-quote entities).
+     */
+    private static function orig_variants( $orig ) {
+        $out = array( $orig );
+        $encoded = htmlspecialchars( $orig, ENT_QUOTES | ENT_HTML5, 'UTF-8', false );
+        if ( $encoded !== $orig ) $out[] = $encoded;
+        $smartMap = array(
+            array( "\u{2018}", "\u{2019}", "\u{201C}", "\u{201D}", "\u{2013}", "\u{2014}", "\u{2026}", "\u{00A0}" ),
+            array( '&#8216;',  '&#8217;',  '&#8220;',  '&#8221;',  '&#8211;',  '&#8212;',  '&#8230;', '&nbsp;' ),
+        );
+        $smart = str_replace( $smartMap[0], $smartMap[1], $orig );
+        if ( $smart !== $orig ) $out[] = $smart;
+        if ( function_exists( 'wptexturize' ) ) {
+            $textured = wptexturize( $orig );
+            if ( $textured !== $orig ) $out[] = $textured;
+            $textured_ent = str_replace( $smartMap[0], $smartMap[1], $textured );
+            if ( $textured_ent !== $textured ) $out[] = $textured_ent;
+        }
+        return $out;
+    }
+
+    // ── H1: translate nav menu item titles directly (scoped, no leakage) ────
+    private static $nav_map = array(); // lang => { itemID: translated }
+
+    private static function nav_titles( $lang ) {
+        if ( isset( self::$nav_map[ $lang ] ) ) return self::$nav_map[ $lang ];
+        global $wpdb;
+        $table = BT_Database::table();
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT field_key, translated_text FROM {$table}
+             WHERE post_id=0 AND language_code=%s AND status='done'
+             AND field_key LIKE 'nav:%%:title'
+             AND translated_text IS NOT NULL AND CHAR_LENGTH(translated_text) > 0",
+            $lang
+        ), ARRAY_A );
+        $map = array();
+        foreach ( $rows as $row ) {
+            // field_key format: nav:{location}:{itemID}:title  → grab the itemID segment
+            $parts = explode( ':', $row['field_key'] );
+            $n = count( $parts );
+            if ( $n >= 3 ) $map[ $parts[ $n - 2 ] ] = $row['translated_text'];
+        }
+        self::$nav_map[ $lang ] = $map;
+        return $map;
+    }
+
+    public static function filter_nav_menu_item_title( $title, $item ) {
+        $lang = BT_Languages::$current ?? 'en';
+        if ( $lang === 'en' || ! is_object( $item ) || empty( $item->ID ) ) return $title;
+        $map = self::nav_titles( $lang );
+        return isset( $map[ (string) $item->ID ] ) ? $map[ (string) $item->ID ] : $title;
     }
 
     // Add dir attribute to the <html> tag if not already set

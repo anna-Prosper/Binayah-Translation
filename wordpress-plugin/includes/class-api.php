@@ -210,6 +210,7 @@ class BT_API {
             }
         }
 
+        update_option( 'bt_tx_ver', time() ); // invalidate cached frontend replacement maps
         return rest_ensure_response( array( 'saved' => $saved, 'failed' => $failed, 'status' => 'success' ) );
     }
 
@@ -544,6 +545,7 @@ class BT_API {
             }
         }
 
+        update_option( 'bt_tx_ver', time() ); // invalidate cached frontend replacement maps
         return rest_ensure_response( array( 'saved' => $saved, 'failed' => $failed, 'status' => 'success' ) );
     }
 

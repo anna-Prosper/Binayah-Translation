@@ -1,0 +1,35 @@
+name: Deploy WordPress plugin
+
+# The API service on Render uses rootDir: api, so it only auto-redeploys when
+# files under api/ change. Plugin-only commits therefore never refreshed the
+# checkout the self-update endpoint reads from, so plugin updates shipped stale.
+# This workflow deploys the plugin directly (independent of Render) whenever the
+# wordpress-plugin/ files change, by pushing them to each WP site's self-update
+# endpoint. It reads from THIS checkout, so it is never stale.
+#
+# Required repo secrets: WP_KEY_TEMP, WP_KEY_STAGING (the per-site bt_api_key).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wordpress-plugin/**'
+  workflow_dispatch:        # allow manual runs from the Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install deploy script deps
+        working-directory: api
+        run: npm ci --omit=dev || npm install
+      - name: Push plugin to WordPress sites
+        working-directory: api
+        env:
+          WP_KEY_TEMP: ${{ secrets.WP_KEY_TEMP }}
+          WP_KEY_STAGING: ${{ secrets.WP_KEY_STAGING }}
+        run: node scripts/deploy-plugin.js
