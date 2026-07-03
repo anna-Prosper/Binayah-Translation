@@ -228,6 +228,31 @@ class BT_Extractor {
     }
 
     /**
+     * Add a text field to $fields. If the raw value contains a <li> list, emit ONE
+     * field per list item (keyed :li:N) instead of the whole <ul> blob — matching a
+     * whole list is brittle because WordPress renders inter-tag whitespace
+     * inconsistently (</li>\n<li> in source becomes </li><li> when rendered). Each
+     * item's inner text is a clean contiguous substring of the rendered HTML, so
+     * str_replace matches reliably.
+     */
+    private static function add_text_field( &$fields, $field_key, $raw ) {
+        $raw = (string) $raw;
+        if ( preg_match( '/<li\b/i', $raw ) && preg_match_all( '/<li\b[^>]*>(.*?)<\/li>/is', $raw, $m ) ) {
+            foreach ( $m[1] as $i => $item ) {
+                $clean = trim( wp_strip_all_tags( $item ) );
+                if ( self::looks_like_real_text( $clean ) ) {
+                    $fields[ $field_key . ':li:' . $i ] = self::value_and_type( $item );
+                }
+            }
+            return;
+        }
+        $clean = trim( wp_strip_all_tags( $raw ) );
+        if ( self::looks_like_real_text( $clean ) ) {
+            $fields[ $field_key ] = self::value_and_type( $raw );
+        }
+    }
+
+    /**
      * Generic sweep of ALL settings of a widget to catch text in widget types
      * that are not in the hardcoded whitelist.
      * Only adds keys that haven't already been extracted by the whitelist step.
@@ -298,11 +323,8 @@ class BT_Extractor {
                 if ( isset( self::$elementor_text_keys[ $widget_type ] ) ) {
                     foreach ( self::$elementor_text_keys[ $widget_type ] as $key ) {
                         if ( ! empty( $settings[ $key ] ) && is_string( $settings[ $key ] ) ) {
-                            $clean = trim( wp_strip_all_tags( $settings[ $key ] ) );
-                            if ( self::looks_like_real_text( $clean ) ) {
-                                $field_key = 'elementor:' . $el_id . ':' . $widget_type . ':' . $key;
-                                $fields[ $field_key ] = self::value_and_type( $settings[ $key ] );
-                            }
+                            $field_key = 'elementor:' . $el_id . ':' . $widget_type . ':' . $key;
+                            self::add_text_field( $fields, $field_key, $settings[ $key ] );
                         }
                     }
                 }
