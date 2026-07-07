@@ -336,7 +336,27 @@ class BT_Frontend {
                 if ( $variant !== '' && ! isset( $map[ $variant ] ) ) $map[ $variant ] = $trans;
             }
         }
+
+        // Protected terms (brand/proper nouns): map each to ITSELF. strtr always
+        // matches the longest key at a position, so "Binayah Properties" (identity)
+        // wins over a shorter "Properties"→translation and the brand is preserved,
+        // while a standalone "Properties" heading elsewhere still translates.
+        foreach ( self::protected_terms() as $term ) {
+            if ( $term === '' ) continue;
+            $map[ $term ] = $term;
+            $enc = htmlspecialchars( $term, ENT_QUOTES | ENT_HTML5, 'UTF-8', false );
+            if ( $enc !== $term ) $map[ $enc ] = $enc;
+        }
         return $map;
+    }
+
+    // Do-not-translate list (brand / proper nouns), editable via the
+    // 'bt_protected_terms' option (one per line). Seeded with the company name.
+    private static function protected_terms() {
+        $opt = get_option( 'bt_protected_terms', '' );
+        $list = array_filter( array_map( 'trim', preg_split( '/\r\n|\r|\n/', (string) $opt ) ) );
+        $seed = array( 'Binayah Properties' );
+        return array_values( array_unique( array_merge( $seed, $list ) ) );
     }
 
     /**
