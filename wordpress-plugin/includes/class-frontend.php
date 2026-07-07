@@ -240,7 +240,9 @@ class BT_Frontend {
             $p = get_post( $post_id );
             $modified = $p ? strtotime( $p->post_modified_gmt ) : 0;
         }
-        $cache_key = 'bt_map_' . $post_id . '_' . $lang . '_' . $modified . '_' . self::tx_version();
+        // Include the plugin version so a plugin update invalidates cached maps
+        // (the map-building logic itself can change between versions).
+        $cache_key = 'bt_map_' . $post_id . '_' . $lang . '_' . $modified . '_' . self::tx_version() . '_' . BT_VERSION;
         $cached = get_transient( $cache_key );
         if ( is_array( $cached ) ) return $cached;
 
