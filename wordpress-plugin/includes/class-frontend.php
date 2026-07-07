@@ -28,6 +28,7 @@ class BT_Frontend {
         // Nav menu labels are translated here (scoped to real menu items) rather than
         // via whole-page substring replacement, which corrupted body text (H1).
         add_filter( 'nav_menu_item_title',  array( __CLASS__, 'filter_nav_menu_item_title' ), 20, 2 );
+        add_filter( 'wp_nav_menu_objects',  array( __CLASS__, 'filter_nav_menu_objects' ), 20, 2 );
 
         if ( function_exists( 'acf_add_filter_modifiers' ) || class_exists( 'ACF' ) ) {
             add_filter( 'acf/load_value', array( __CLASS__, 'filter_acf_value' ), 20, 3 );
@@ -392,6 +393,25 @@ class BT_Frontend {
         if ( $lang === 'en' || ! is_object( $item ) || empty( $item->ID ) ) return $title;
         $map = self::nav_titles( $lang );
         return isset( $map[ (string) $item->ID ] ) ? $map[ (string) $item->ID ] : $title;
+    }
+
+    /**
+     * Rewrite menu item titles on the objects list before the walker renders.
+     * Themes with custom nav walkers (e.g. Houzez's Bootstrap walker) build the
+     * markup themselves and never call the `nav_menu_item_title` filter, so this
+     * object-level filter — which fires for every walker — is the reliable hook.
+     */
+    public static function filter_nav_menu_objects( $items, $args ) {
+        $lang = BT_Languages::$current ?? 'en';
+        if ( $lang === 'en' || ! is_array( $items ) ) return $items;
+        $map = self::nav_titles( $lang );
+        if ( empty( $map ) ) return $items;
+        foreach ( $items as $item ) {
+            if ( is_object( $item ) && ! empty( $item->ID ) && isset( $map[ (string) $item->ID ] ) ) {
+                $item->title = $map[ (string) $item->ID ];
+            }
+        }
+        return $items;
     }
 
     // Add dir attribute to the <html> tag if not already set
