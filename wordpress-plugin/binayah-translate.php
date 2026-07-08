@@ -2,13 +2,13 @@
 /**
  * Plugin Name: Binayah Translate
  * Description: Custom AI Translation System for Binayah.com
- * Version: 1.7.18
+ * Version: 1.7.19
  * Author: Binayah Team
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'BT_VERSION',    '1.7.18' );
+define( 'BT_VERSION',    '1.7.19' );
 define( 'BT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 

@@ -313,6 +313,12 @@ class BT_Frontend {
             // (e.g. "Townhouse for Sale in Dubai" → "Townhouse for Продажа in Dubai").
             if ( $post_id === 0 && strpos( $field_key, 'nav:' ) === 0 ) continue;
 
+            // Houzez grid-builder count labels ("Property"/"Properties") are short,
+            // generic single words used only as widget counters. Applying them as
+            // whole-page replacements corrupts unrelated text (e.g. the mega-menu
+            // "Property Listing in Dubai" → "Объект Listing in Dubai"). Skip them.
+            if ( strpos( $field_key, ':property_text' ) !== false || strpos( $field_key, ':properties_text' ) !== false ) continue;
+
             if ( isset( $extracted[ $field_key ] ) ) {
                 $orig_data = $extracted[ $field_key ];
                 $orig = is_array( $orig_data ) ? ( $orig_data['value'] ?? '' ) : (string) $orig_data;
