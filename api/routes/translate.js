@@ -658,9 +658,12 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap, site) {
       }
     }
 
-    trackUsage(lang, api, toTranslate.length);
+    // Only count fields that actually consumed the AI (tokens spent). A fully
+    // cache-resolved run costs nothing and must not inflate usage stats.
+    trackUsage(lang, api, totalTokens > 0 ? toTranslate.length : 0);
 
     const origMap = Object.fromEntries(allFields.filter(f=>translations[f.key]).map(f=>[f.key,f.text]));
+    let saveOk = true, saveErrMsg = '';
     try {
       const saveRes = await axios.post(saveUrl,
         {language_code:lang,fields:translations,originals:origMap,translated_by:api+':'+(model||'default')},
@@ -676,14 +679,21 @@ async function runJob(job_id, page_id, language, langPrompts, forceMap, site) {
         console.log('[BT] Saved',saveRes.data.saved,'fields for post',page_id,'lang',lang,'skipped:',skipCount,'api_calls:',apiCallCount);
       }
     } catch(saveErr) {
+      // A failed save means the translations were computed (tokens spent) but
+      // never persisted to WordPress. Surface it as an error instead of
+      // reporting the job/log as a success.
+      saveOk = false; saveErrMsg = saveErr.message;
+      job.status = 'error';
+      job.error  = 'WordPress save failed for lang ' + lang + ': ' + saveErr.message;
       console.error('[BT] Save failed for post',page_id,'lang',lang,'error:',saveErr.message);
     }
 
-    job.results.push({language:lang,translated:done,failed,api,model,skipped:skipCount,tokens_used:totalTokens});
-    appendLog({id:job_id+'_'+lang,job_id,timestamp:new Date().toISOString(),post_id:page_id,post_title:job.page_title||'',post_type:(content.post_type||'post'),post_url:job.post_url||'',language:lang,language_name:lang,api,model:(model||'default'),fields_count:done,tokens_used:totalTokens,input_tokens:totalInputTokens,output_tokens:totalOutputTokens,cache_hits:skipCount,status:'done',user_id:job.user_id||'',user_name:job.user_name||''});
+    job.results.push({language:lang,translated:done,failed,api,model,skipped:skipCount,tokens_used:totalTokens,saved:saveOk});
+    appendLog({id:job_id+'_'+lang,job_id,timestamp:new Date().toISOString(),post_id:page_id,post_title:job.page_title||'',post_type:(content.post_type||'post'),post_url:job.post_url||'',language:lang,language_name:lang,api,model:(model||'default'),fields_count:done,tokens_used:totalTokens,input_tokens:totalInputTokens,output_tokens:totalOutputTokens,cache_hits:skipCount,status:(saveOk?'done':'error'),error:(saveOk?'':saveErrMsg),user_id:job.user_id||'',user_name:job.user_name||''});
   }
 
-  if (job.status !== 'stopped') job.status='done';
+  // Don't clobber an error status set when a WordPress save failed.
+  if (job.status !== 'stopped' && job.status !== 'error') job.status='done';
   setTimeout(()=>jobs.delete(job_id),10*60*1000);
 }
 

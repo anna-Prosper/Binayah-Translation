@@ -1,5 +1,7 @@
 'use strict';
 const axios = require('axios');
+const jwt   = require('jsonwebtoken');
+const jwtSecret = require('../lib/jwt-secret');
 
 let orCache = null;
 let orCacheTime = 0;
@@ -13,6 +15,15 @@ const DEEPSEEK_MODELS = [
 ];
 
 module.exports = async function(fastify) {
+
+  // Admin-only (model picker). Require a valid JWT.
+  fastify.addHook('preHandler', async (req, reply) => {
+    const a = req.headers.authorization || '';
+    if (!a.startsWith('Bearer ')) return reply.code(401).send({ error: 'Unauthorized' });
+    try { jwt.verify(a.slice(7), jwtSecret()); }
+    catch { return reply.code(401).send({ error: 'Invalid token' }); }
+  });
+
   fastify.get('/models', async (req, reply) => {
     const api = req.query.api || 'deepseek';
     if (api === 'deepseek') return { models: DEEPSEEK_MODELS };

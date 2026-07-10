@@ -42,6 +42,16 @@ function readLog() { return tlog.readAll(); }
 
 module.exports = async function (fastify) {
 
+  // Admin-only: page lists, per-page translations, stats. WordPress never calls
+  // these (it only uses /languages/* and /sites/register); the admin UI attaches
+  // the JWT to every /api call. Require a valid token.
+  fastify.addHook('preHandler', async (req, reply) => {
+    const a = req.headers.authorization || '';
+    if (!a.startsWith('Bearer ')) return reply.code(401).send({ error: 'Unauthorized' });
+    try { jwt.verify(a.slice(7), jwtSecret()); }
+    catch { return reply.code(401).send({ error: 'Invalid token' }); }
+  });
+
   fastify.get('/post-types', async (req, reply) => {
     try {
       const site = resolveSite(req.query.env, decodeToken(req));

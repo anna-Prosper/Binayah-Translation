@@ -18,6 +18,14 @@ function authPayload(req) {
 
 module.exports = async function (fastify) {
 
+  // Admin-only usage analytics. Require a valid JWT.
+  fastify.addHook('preHandler', async (req, reply) => {
+    const a = req.headers.authorization || '';
+    if (!a.startsWith('Bearer ')) return reply.code(401).send({ error: 'Unauthorized' });
+    try { jwt.verify(a.slice(7), jwtSecret()); }
+    catch { return reply.code(401).send({ error: 'Invalid token' }); }
+  });
+
   /* ── GET /usage-log ─────────────────────────────────────────────────── */
   fastify.get('/usage-log', async (req, reply) => {
     const p = authPayload(req);

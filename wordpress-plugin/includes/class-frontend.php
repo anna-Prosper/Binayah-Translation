@@ -178,6 +178,16 @@ class BT_Frontend {
     public static function start_buffer() {
         if ( BT_Languages::$current === 'en' ) return;
 
+        // Only translate HTML page responses. Buffering feeds / robots.txt / REST /
+        // sitemaps / AMP would corrupt XML/JSON/text output with str replacements.
+        if ( is_feed() || is_robots() || is_trackback()
+             || ( function_exists( 'is_embed' ) && is_embed() )
+             || ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+             || ( function_exists( 'wp_is_json_request' ) && wp_is_json_request() )
+             || ( function_exists( 'is_amp_endpoint' ) && is_amp_endpoint() ) ) {
+            return;
+        }
+
         $lang    = BT_Languages::$current;
         $post_id = get_queried_object_id();
 

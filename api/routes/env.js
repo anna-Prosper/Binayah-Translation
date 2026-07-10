@@ -1,8 +1,18 @@
 'use strict';
 const fs      = require('fs');
+const crypto  = require('crypto');
 const jwt     = require('jsonwebtoken');
 const jwtSecret = require('../lib/jwt-secret');
 const dataDir = require('../lib/data-dir');
+
+// Constant-time secret comparison (avoids leaking the secret via timing).
+function secretEq(a, b) {
+  a = String(a || ''); b = String(b || '');
+  if (!a || !b) return false;
+  const ba = Buffer.from(a), bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
 const { atomicWrite } = require('../lib/atomic-json');
 
 const CONFIG_PATH = dataDir('env-config.json');
@@ -54,7 +64,7 @@ module.exports = async function(fastify) {
 
   fastify.post('/sites/register', async (req, reply) => {
     const { site_url, site_name, wp_api_key, admin_secret } = req.body || {};
-    if (!admin_secret || admin_secret !== process.env.ADMIN_SECRET) {
+    if (!secretEq(admin_secret, process.env.ADMIN_SECRET)) {
       return reply.code(401).send({ error: 'Invalid admin secret' });
     }
     if (!site_url || !wp_api_key) {

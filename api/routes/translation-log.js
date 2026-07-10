@@ -1,10 +1,21 @@
 'use strict';
+const jwt   = require('jsonwebtoken');
+const jwtSecret = require('../lib/jwt-secret');
 const tlog = require('../lib/tlog');
 
 // Newest-first, matching the previous array order.
 function readLog() { return tlog.readAll(); }
 
 module.exports = async function(fastify) {
+
+  // Admin-only translation history/export. Require a valid JWT.
+  fastify.addHook('preHandler', async (req, reply) => {
+    const a = req.headers.authorization || '';
+    if (!a.startsWith('Bearer ')) return reply.code(401).send({ error: 'Unauthorized' });
+    try { jwt.verify(a.slice(7), jwtSecret()); }
+    catch { return reply.code(401).send({ error: 'Invalid token' }); }
+  });
+
   fastify.get('/translation-log', async (req) => {
     const { page = 1, per_page = 25, search = '', post_type = '', user_id = '' } = req.query;
     let log = readLog();
