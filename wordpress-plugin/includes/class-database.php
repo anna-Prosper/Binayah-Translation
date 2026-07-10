@@ -87,17 +87,6 @@ class BT_Database {
         ) );
     }
 
-    // Get one translation
-    public static function get_translation( $post_id, $field_key, $lang ) {
-        global $wpdb;
-
-        return $wpdb->get_var( $wpdb->prepare(
-            "SELECT translated_text FROM " . self::table() .
-            " WHERE post_id = %d AND field_key = %s AND language_code = %s AND status = 'done'",
-            $post_id, $field_key, $lang
-        ) );
-    }
-
     // Get ALL translations for one post in one language
     public static function get_all_for_post( $post_id, $lang ) {
         global $wpdb;
@@ -114,46 +103,6 @@ class BT_Database {
             $result[ $row['field_key'] ] = $row['translated_text'];
         }
         return $result;
-    }
-    // Batch insert/update many translations in one query
-    public static function save_translations_batch( array $rows ) {
-        global $wpdb;
-        if ( empty( $rows ) ) return;
-        $table = self::table();
-        $now   = current_time( 'mysql' );
-
-        // Chunk to avoid hitting MySQL max_allowed_packet
-        foreach ( array_chunk( $rows, 50 ) as $chunk ) {
-            $values       = array();
-            $placeholders = array();
-            foreach ( $chunk as $r ) {
-                $placeholders[] = "(%d, %s, %s, %s, %s, %s, %s, 'done', %s, %s)";
-                array_push( $values,
-                    (int) $r['post_id'],
-                    (string) $r['field_key'],
-                    (string) $r['field_type'],
-                    (string) $r['lang'],
-                    (string) $r['original'],
-                    (string) $r['translated'],
-                    (string) $r['by'],
-                    md5( (string) $r['original'] ),
-                    $now
-                );
-            }
-            $sql = "INSERT INTO {$table}
-                (post_id, field_key, field_type, language_code, original_text, translated_text,
-                 translated_by, status, hash, translated_at)
-                VALUES " . implode( ', ', $placeholders ) . "
-                ON DUPLICATE KEY UPDATE
-                    field_type      = VALUES(field_type),
-                    original_text   = VALUES(original_text),
-                    translated_text = VALUES(translated_text),
-                    translated_by   = VALUES(translated_by),
-                    status          = 'done',
-                    hash            = VALUES(hash),
-                    translated_at   = VALUES(translated_at)";
-            $wpdb->query( $wpdb->prepare( $sql, ...$values ) );
-        }
     }
 
 }

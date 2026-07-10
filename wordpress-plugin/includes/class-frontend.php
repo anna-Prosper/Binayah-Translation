@@ -7,6 +7,15 @@ class BT_Frontend {
     private static $post_id_map = null;
 
     public static function init() {
+        // Cache-bust hooks must register in ALL contexts (menu/option edits happen
+        // in wp-admin) — register them BEFORE the frontend-only bail below so a nav
+        // label or global-strings/protected-terms change invalidates cached maps.
+        add_action( 'wp_update_nav_menu',              array( __CLASS__, 'bump_tx_version' ) );
+        add_action( 'update_option_bt_global_strings', array( __CLASS__, 'bump_tx_version' ) );
+        add_action( 'add_option_bt_global_strings',    array( __CLASS__, 'bump_tx_version' ) );
+        add_action( 'update_option_bt_protected_terms',array( __CLASS__, 'bump_tx_version' ) );
+        add_action( 'add_option_bt_protected_terms',   array( __CLASS__, 'bump_tx_version' ) );
+
         // Never run translations inside admin or AJAX calls
         if ( is_admin() || wp_doing_ajax() ) return;
 
@@ -189,7 +198,11 @@ class BT_Frontend {
         }
 
         $lang    = BT_Languages::$current;
-        $post_id = get_queried_object_id();
+        // Only treat the queried id as a post id on singular views. On archive /
+        // taxonomy / author / search pages get_queried_object_id() is a term/user id
+        // and must NOT be used as a post_id (it can collide with an unrelated post's
+        // translations). Those pages still get the global (post_id=0) map.
+        $post_id = is_singular() ? get_queried_object_id() : 0;
 
         // Redirect to English if singular page has no translations
         if ( is_singular() && $post_id ) {
@@ -219,9 +232,11 @@ class BT_Frontend {
 
     // ── Text replacement — the heart of frontend delivery ──────────────────
 
-    // Bumped whenever a translation is saved (see class-api.php) so cached
-    // replacement maps invalidate immediately after an edit.
+    // Bumped whenever a translation is saved (see class-api.php) or nav menus /
+    // global-strings / protected-terms options change, so cached replacement maps
+    // invalidate immediately.
     private static function tx_version() { return (int) get_option( 'bt_tx_ver', 0 ); }
+    public static function bump_tx_version() { update_option( 'bt_tx_ver', time() ); }
 
     /**
      * Apply translations to the rendered HTML in a SINGLE strtr() pass using a
@@ -303,6 +318,10 @@ class BT_Frontend {
         foreach ( $other_rows as $orow ) {
             $fk = $orow['field_key']; $other = $orow['translated_text'];
             if ( empty( $other ) ) continue;
+            // Skip very short other-language strings — replacing a 1-3 char foreign
+            // token across the whole page corrupts unrelated substrings (same class
+            // of bug as the nav/count-label leaks). Multi-char phrases are safe.
+            if ( mb_strlen( $other ) < 4 ) continue;
             if ( isset( $current_by_field[ $fk ] ) ) {
                 if ( $other !== $current_by_field[ $fk ] ) $cross_pairs[] = array( $other, $current_by_field[ $fk ] );
             } elseif ( isset( $orig_english[ $fk ] ) ) {
@@ -494,11 +513,18 @@ class BT_Frontend {
     }
 
     private static function get_translated_paths( $lang ) {
-        if ( self::$post_id_map !== null ) return self::$post_id_map;
+        // Per-request memo (keyed by lang) + a transient so we don't run a
+        // SELECT DISTINCT + get_permalink() for every translated post on every
+        // non-English request. Invalidated by tx_version (bumped on save/menu edit).
+        if ( ! is_array( self::$post_id_map ) ) self::$post_id_map = array();
+        if ( isset( self::$post_id_map[ $lang ] ) ) return self::$post_id_map[ $lang ];
+
+        $cache_key = 'bt_paths_' . $lang . '_' . self::tx_version();
+        $cached = get_transient( $cache_key );
+        if ( is_array( $cached ) ) { self::$post_id_map[ $lang ] = $cached; return $cached; }
 
         global $wpdb;
         $table = BT_Database::table();
-
         $ids = $wpdb->get_col( $wpdb->prepare(
             "SELECT DISTINCT post_id FROM {$table} WHERE language_code=%s AND status='done'", $lang
         ) );
@@ -507,12 +533,12 @@ class BT_Frontend {
         foreach ( $ids as $id ) {
             $permalink = get_permalink( (int) $id );
             if ( $permalink ) {
-                $path = '/' . trim( str_replace( home_url(), '', $permalink ), '/' );
-                $paths[] = $path;
+                $paths[] = '/' . trim( str_replace( home_url(), '', $permalink ), '/' );
             }
         }
 
-        self::$post_id_map = $paths;
+        set_transient( $cache_key, $paths, 12 * HOUR_IN_SECONDS );
+        self::$post_id_map[ $lang ] = $paths;
         return $paths;
     }
 
