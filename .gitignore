@@ -39,3 +39,9 @@ api/sites.json
 
 # Per-site runtime AI config
 api/data/**/ai-config.json
+
+# Per-site runtime data (persisted on /data disk in prod)
+api/data/**/languages.json
+api/data/**/translation-log.json
+api/data/**/translation-log.jsonl
+api/data/**/*.json
