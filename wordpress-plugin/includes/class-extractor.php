@@ -23,7 +23,8 @@ class BT_Extractor {
 
         // 3. Check if page was built with Elementor
         $elementor_data = get_post_meta( $post->ID, '_elementor_data', true );
-        if ( ! empty( $elementor_data ) ) {
+        $has_elementor  = ! empty( $elementor_data );
+        if ( $has_elementor ) {
             $elementor_fields = self::extract_elementor( $elementor_data );
             $fields = array_merge( $fields, $elementor_fields );
         }
@@ -45,10 +46,11 @@ class BT_Extractor {
         $fields = array_merge( $fields, $houzez_fields );
 
         // 6b. Extract the main post_content body (classic-editor blog posts, Houzez
-        // property descriptions, plain pages). Elementor pages store their content in
-        // _elementor_data (handled above) and leave post_content as junk/placeholder,
-        // so skip those. Keys are content-hashed (stable, not positional like html:N).
-        if ( get_post_meta( $post->ID, '_elementor_edit_mode', true ) !== 'builder' ) {
+        // property descriptions, plain pages). Skip Elementor pages entirely — their
+        // content is in _elementor_data (handled above), and running the_content on
+        // them re-renders the builder (heavy / re-entrant during the page's own
+        // output buffer → could blank the page). Keys are content-hashed (stable).
+        if ( ! $has_elementor ) {
             $content_fields = self::extract_post_content( $post );
             $fields = array_merge( $fields, $content_fields );
         }
@@ -546,13 +548,19 @@ class BT_Extractor {
      * descriptions (which live in post_content). Each node keeps its inline HTML
      * so the frontend str-replaces it inside the rendered page unchanged.
      */
+    private static $in_the_content = false;
     private static function extract_post_content( $post ) {
         $fields = array();
         $raw = isset( $post->post_content ) ? (string) $post->post_content : '';
         if ( trim( $raw ) === '' ) return $fields;
 
-        // Render the same way the theme does so the extracted text matches the page.
-        $html = apply_filters( 'the_content', $raw );
+        // Re-entrancy guard: this runs inside the page's output buffer, and
+        // apply_filters('the_content') can itself trigger extraction again on some
+        // themes/builders — never recurse (it would blank the page / OOM).
+        if ( self::$in_the_content ) return $fields;
+        self::$in_the_content = true;
+        $html = apply_filters( 'the_content', $raw );  // render as the theme does, to match the page
+        self::$in_the_content = false;
         if ( ! is_string( $html ) || $html === '' ) return $fields;
 
         // Inner content of the common block-level text containers.

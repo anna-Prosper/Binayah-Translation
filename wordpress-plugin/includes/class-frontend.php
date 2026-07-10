@@ -218,15 +218,22 @@ class BT_Frontend {
             }
         }
 
-        ob_start( function( $html ) use ( $post_id, $lang ) {
-            if ( $post_id > 0 ) {
-                $html = self::apply_text_translations( $html, $post_id, $lang );
+        ob_start( function( $original ) use ( $post_id, $lang ) {
+            // Never emit an empty page. Each transform can fail on very large pages
+            // (e.g. preg_* returning null past a PCRE limit) — if any step returns
+            // an empty/null result while we had input, fall back to the last good
+            // HTML so the visitor always gets the page (untranslated at worst).
+            try {
+                $html = $original;
+                $step = function( $out ) use ( &$html ) { if ( is_string( $out ) && $out !== '' ) $html = $out; };
+                if ( $post_id > 0 ) $step( self::apply_text_translations( $html, $post_id, $lang ) );
+                $step( self::apply_text_translations( $html, 0, $lang ) );   // global (nav/theme)
+                $step( self::rewrite_translated_links( $html, $lang ) );
+                $step( self::add_lang_attributes( $html, $lang ) );
+                return ( is_string( $html ) && $html !== '' ) ? $html : $original;
+            } catch ( \Throwable $e ) {
+                return $original;
             }
-            // Always apply global translations (nav menus, post_id = 0)
-            $html = self::apply_text_translations( $html, 0, $lang );
-            $html = self::rewrite_translated_links( $html, $lang );
-            $html = self::add_lang_attributes( $html, $lang );
-            return $html;
         } );
     }
 
