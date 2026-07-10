@@ -29,8 +29,16 @@ const HASH_STORE = dataDir('field-hashes.json');
 
 // Node-side hash store: { "{post_id}:{lang}:{field_key}": "md5hex" }
 // Used to detect stale translations without requiring WP plugin changes.
-function readHashes() { try { return JSON.parse(fs.readFileSync(HASH_STORE,'utf8')); } catch { return {}; } }
-function saveHashes(h) { writeJSON(HASH_STORE, h); }
+// In-memory hash cache: the store was re-read+parsed from disk once per field
+// inside the translate loop (O(filesize) per field at 21k scale). Load once and
+// keep it in memory; concurrent jobs share the one object (also avoids lost updates).
+let _hashes = null;
+function readHashes() {
+  if (_hashes) return _hashes;
+  try { _hashes = JSON.parse(fs.readFileSync(HASH_STORE,'utf8')); } catch { _hashes = {}; }
+  return _hashes;
+}
+function saveHashes(h) { _hashes = h; writeJSON(HASH_STORE, h); }
 // Keys are site-scoped so the same post_id on different WP sites can't collide.
 function getFieldHash(post_id, lang, key, site) { return readHashes()[`${site||''}:${post_id}:${lang}:${key}`] || null; }
 function setFieldHashes(post_id, lang, fieldMap, site) {
@@ -248,27 +256,41 @@ async function translateBatch(texts, lang, api, model, systemPrompt) {
       }
 
       if (Array.isArray(translated) && translated.length === chunk.length) {
-        chunk.forEach((t, idx) => { map[t] = String(translated[idx] || t); });
+        // Detect a model that echoed the source back untranslated (a common silent
+        // failure that used to be saved as a valid "translation"). Per-item
+        // same-as-source is legitimate for proper nouns; a whole batch coming back
+        // identical means the translation did not happen — leave it unmapped so the
+        // caller counts it as failed instead of persisting English.
+        let same = 0;
+        chunk.forEach((t, idx) => { if (String(translated[idx] ?? '').trim() === String(t).trim()) same++; });
+        if (chunk.length >= 4 && same / chunk.length >= 0.8) {
+          console.warn('[BT] Batch looks untranslated (echoed source) lang=' + lang + ' ' + same + '/' + chunk.length + ' identical — not saving as English');
+        } else {
+          chunk.forEach((t, idx) => {
+            const out = String(translated[idx] ?? '').trim();
+            if (out) map[t] = out;   // skip empty items rather than substituting the English source
+          });
+        }
       } else {
         // Fallback: translate individually
         for (const t of chunk) {
           try {
             const r = await translateText(t, lang, api, model, systemPrompt);
-            map[t] = r.text;
+            if (r.text && r.text.trim()) map[t] = r.text;   // don't persist empty/echoed English
             totalTokens       += r.tokens       || 0;
             totalInputTokens  += r.input_tokens  || 0;
             totalOutputTokens += r.output_tokens || 0;
           } catch(err) {
             const fatal = classifyApiError(err, api);
             if (fatal) throw fatal;
-            map[t] = t;
+            // leave unmapped on non-fatal error → counted as failed, retried next run
           }
         }
       }
     } catch(err) {
       const fatal = classifyApiError(err, api);
       if (fatal) throw fatal;
-      chunk.forEach(t => { map[t] = t; });
+      // non-fatal chunk failure: leave unmapped (do not persist the English source)
     }
   }
 
@@ -335,32 +357,41 @@ async function translateBatchKeyed(fields, lang, api, model, systemPrompt) {
       }
 
       if (translated && typeof translated === 'object' && !Array.isArray(translated)) {
+        // Echo detection: a whole batch returned identical to the source is an
+        // untranslated echo — leave unmapped (failed) rather than saving English.
+        let same = 0, got = 0;
         chunk.forEach(f => {
           const sk = semanticKey(f.key);
-          if (translated[sk] && typeof translated[sk] === 'string') {
-            keyedMap[f.key] = translated[sk];
-          }
+          if (translated[sk] && typeof translated[sk] === 'string') { got++; if (translated[sk].trim() === String(f.text).trim()) same++; }
         });
+        if (chunk.length >= 4 && got > 0 && same / chunk.length >= 0.8) {
+          console.warn('[BT] Keyed batch looks untranslated (echoed source) lang=' + lang + ' ' + same + '/' + chunk.length + ' identical — not saving as English');
+        } else {
+          chunk.forEach(f => {
+            const sk = semanticKey(f.key);
+            if (translated[sk] && typeof translated[sk] === 'string' && translated[sk].trim()) keyedMap[f.key] = translated[sk];
+          });
+        }
       } else {
         // Fallback: translate individually if object parse fails
         for (const f of chunk) {
           try {
             const r = await translateText(f.text, lang, api, model, systemPrompt);
-            keyedMap[f.key] = r.text;
+            if (r.text && r.text.trim()) keyedMap[f.key] = r.text;
             totalTokens       += r.tokens       || 0;
             totalInputTokens  += r.input_tokens  || 0;
             totalOutputTokens += r.output_tokens || 0;
           } catch(err) {
             const fatal = classifyApiError(err, api);
             if (fatal) throw fatal;
-            keyedMap[f.key] = f.text;
+            // leave unmapped on non-fatal error
           }
         }
       }
     } catch(err) {
       const fatal = classifyApiError(err, api);
       if (fatal) throw fatal;
-      chunk.forEach(f => { keyedMap[f.key] = f.text; });
+      // non-fatal chunk failure: leave unmapped (do not persist the English source)
     }
   }
 

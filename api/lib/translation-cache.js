@@ -79,4 +79,11 @@ function clear() {
   try { atomicWrite(CACHE_PATH, '{}'); _dirty = false; } catch {}
 }
 
-module.exports = { get, set, stats, clear };
+// Flush pending writes on shutdown so the 2s debounce window isn't lost on redeploy.
+function flush() {
+  if (!_dirty || !_mem) return;
+  try { atomicWrite(CACHE_PATH, JSON.stringify(_mem)); _dirty = false; } catch {}
+}
+for (const sig of ['SIGTERM', 'SIGINT', 'beforeExit']) process.on(sig, flush);
+
+module.exports = { get, set, stats, clear, flush };

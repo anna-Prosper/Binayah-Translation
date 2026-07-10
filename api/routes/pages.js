@@ -108,8 +108,9 @@ module.exports = async function (fastify) {
   fastify.get('/page/:id/content', async (req, reply) => {
     try {
       const id = req.params.id;
-      const url = id === '0' ? `${WP()}/global/content` : `${WP()}/page/${id}/content`;
-      const res = await axios.get(url, { headers: HEADERS(), timeout: 10000 });
+      const site = resolveSite(req.query.env, decodeToken(req));
+      const url = id === '0' ? `${WP(site)}/global/content` : `${WP(site)}/page/${id}/content`;
+      const res = await axios.get(url, { headers: HEADERS(site), timeout: 10000 });
       return res.data;
     } catch (err) {
       return reply.status(502).send({ error: 'Could not fetch page content', detail: err.message });
@@ -119,10 +120,11 @@ module.exports = async function (fastify) {
   fastify.get('/page/:id/translations', async (req, reply) => {
     try {
       const id  = req.params.id;
+      const site = resolveSite(req.query.env, decodeToken(req));
       const url = id === '0'
-        ? `${WP()}/global/translations?lang=${req.query.lang || 'ar'}`
-        : `${WP()}/page/${id}/translations?lang=${req.query.lang || 'ar'}`;
-      const res = await axios.get(url, { headers: HEADERS(), timeout: 10000 });
+        ? `${WP(site)}/global/translations?lang=${req.query.lang || 'ar'}`
+        : `${WP(site)}/page/${id}/translations?lang=${req.query.lang || 'ar'}`;
+      const res = await axios.get(url, { headers: HEADERS(site), timeout: 10000 });
       return res.data;
     } catch {
       return {};
@@ -131,7 +133,8 @@ module.exports = async function (fastify) {
 
   fastify.get('/stats', async (req, reply) => {
     try {
-      const res = await axios.get(`${WP()}/stats`, { headers: HEADERS(), timeout: 10000 });
+      const site = resolveSite(req.query.env, decodeToken(req));
+      const res = await axios.get(`${WP(site)}/stats`, { headers: HEADERS(site), timeout: 10000 });
       return res.data;
     } catch (err) {
       return reply.status(502).send({ error: 'Could not fetch stats', detail: err.message });

@@ -1,8 +1,7 @@
 'use strict';
 const jwt     = require('jsonwebtoken');
 const jwtSecret = require('../lib/jwt-secret');
-const fs      = require('fs');
-const dataDir = require('../lib/data-dir');
+const tlog    = require('../lib/tlog');
 const { read, write, byId, hash, safe, isSuperAdmin } = require('../lib/users');
 
 function guard(req, reply) {
@@ -15,8 +14,8 @@ function guard(req, reply) {
   } catch { reply.status(401).send({error:'Invalid token'}); return null; }
 }
 
-const LOG = dataDir('translation-log.json');
-function readLog() { try { return JSON.parse(fs.readFileSync(LOG,'utf8')); } catch { return []; } }
+// Read from the append-only JSONL log (newest-first), matching the other routes.
+function readLog() { return tlog.readAll(); }
 
 module.exports = async function(fastify) {
 

@@ -14,22 +14,32 @@ const _jobs = new Map();
 (function init() {
   const saved = readJSON(STORE, {});
   for (const [id, job] of Object.entries(saved || {})) {
-    if (job && (job.status === 'running' || job.status === 'paused')) {
+    if (!job) continue;
+    if (job.status === 'running' || job.status === 'paused') {
+      // The process that was running this died — reflect that instead of hanging.
       job.status = 'interrupted';
       job.error  = job.error || 'Server restarted while this job was running.';
+      _jobs.set(id, job);
     }
-    _jobs.set(id, job);
+    // Drop already-terminal jobs (done/error/stopped/interrupted) from before the
+    // restart so jobs.json doesn't accumulate forever. Live history is in the log.
   }
 })();
 
 let _dirty = false;
+function hasActive() {
+  for (const j of _jobs.values()) if (j && (j.status === 'running' || j.status === 'paused')) return true;
+  return false;
+}
 function snapshot() {
-  if (!_dirty) return;
+  // Persist when a set/delete marked us dirty, OR whenever a job is active — job
+  // objects mutate in place (progress/current_field), so an active job means there
+  // is fresh progress to capture even though _dirty wasn't set.
+  if (!_dirty && !hasActive()) return;
   _dirty = false;
   try { writeJSON(STORE, Object.fromEntries(_jobs)); } catch { /* best effort */ }
 }
-// Progress mutates job objects in place; a periodic snapshot captures it without
-// an fs write per field. Also flush on status transitions via markDirty().
+// Periodic snapshot captures in-place progress; also flushed on set/delete/exit.
 const _timer = setInterval(snapshot, 3000);
 if (_timer.unref) _timer.unref();
 for (const sig of ['SIGTERM', 'SIGINT', 'beforeExit']) {

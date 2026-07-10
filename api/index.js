@@ -20,7 +20,6 @@ fastify.get('/', async () => ({ service: 'Binayah Translation API', version: '1.
 fastify.register(require('./routes/health'));
 fastify.register(require('./routes/pages'));
 fastify.register(require('./routes/translate'));
-fastify.register(require('./routes/jobs'));
 fastify.register(require('./routes/settings'));
 fastify.register(require('./routes/auth'));
 fastify.register(require('./routes/users'));

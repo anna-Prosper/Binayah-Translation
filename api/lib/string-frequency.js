@@ -48,8 +48,8 @@ function record(text, lang, translation, page_id) {
   if (!data[k].page_ids.includes(page_id)) {
     data[k].page_ids.push(page_id);
     _dirty = true;
-    scheduleFlush();
   }
+  if (_dirty) scheduleFlush();
 }
 
 // Returns the cached translation only if this text has appeared on >= threshold pages,
@@ -78,4 +78,11 @@ function stats() {
   };
 }
 
-module.exports = { record, getGlobal, stats };
+// Flush pending writes on shutdown so the 2s debounce window isn't lost on redeploy.
+function flush() {
+  if (!_dirty || !_mem) return;
+  try { atomicWrite(FREQ_PATH, JSON.stringify(_mem)); _dirty = false; } catch {}
+}
+for (const sig of ['SIGTERM', 'SIGINT', 'beforeExit']) process.on(sig, flush);
+
+module.exports = { record, getGlobal, stats, flush };

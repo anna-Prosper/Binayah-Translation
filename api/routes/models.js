@@ -5,6 +5,7 @@ const jwtSecret = require('../lib/jwt-secret');
 
 let orCache = null;
 let orCacheTime = 0;
+let orPricing = {};   // cached OpenRouter pricing map, refreshed with the model list
 const OR_TTL = 60 * 60 * 1000;
 
 const DEEPSEEK_MODELS = [
@@ -77,29 +78,19 @@ module.exports = async function(fastify) {
           orCache = filtered;
           orCacheTime = now;
           orModels = filtered;
-          // Also store full pricing data in a separate cache
+          // Refresh the cached pricing map from the same response.
+          orPricing = {};
           for (const m of (res.data.data || [])) {
             if (m.pricing && (parseFloat(m.pricing.prompt) > 0 || parseFloat(m.pricing.completion) > 0)) {
-              pricing[m.id] = {
-                inp: parseFloat(m.pricing.prompt)     * 1000000,
-                out: parseFloat(m.pricing.completion) * 1000000,
-              };
-            }
-          }
-        } else {
-          // Use already cached full pricing if available via a secondary fetch
-          const res2 = await axios.get('https://openrouter.ai/api/v1/models', {
-            headers: { Authorization: 'Bearer ' + key }, timeout: 10000,
-          });
-          for (const m of (res2.data.data || [])) {
-            if (m.pricing && (parseFloat(m.pricing.prompt) > 0 || parseFloat(m.pricing.completion) > 0)) {
-              pricing[m.id] = {
+              orPricing[m.id] = {
                 inp: parseFloat(m.pricing.prompt)     * 1000000,
                 out: parseFloat(m.pricing.completion) * 1000000,
               };
             }
           }
         }
+        // Serve pricing from cache — no second network fetch when the list is warm.
+        Object.assign(pricing, orPricing);
       } catch(e) {
         // Return at least DeepSeek pricing on error
       }
