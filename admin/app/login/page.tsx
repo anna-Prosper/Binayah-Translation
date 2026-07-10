@@ -18,12 +18,6 @@ export default function LoginPage() {
       if (data.token) {
         document.cookie = 'bt_token=' + data.token + '; path=/; max-age=' + (7 * 24 * 3600) + '; SameSite=Strict';
         localStorage.setItem('bt_token', data.token);
-        try {
-          const parts = data.token.split('.');
-          const pad = parts[1].replace(/-/g,'+').replace(/_/g,'/');
-          const payload = JSON.parse(atob(pad.padEnd(pad.length + (4-pad.length%4)%4, '=')));
-          localStorage.setItem('bt_user', JSON.stringify(payload));
-        } catch {}
         window.location.href = '/';
       } else { setError(data.error || 'Invalid password.'); }
     } catch { setError('Connection error. Please try again.'); }

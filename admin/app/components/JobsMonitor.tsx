@@ -88,6 +88,7 @@ export default function JobsMonitor() {
     timerRef.current = setTimeout(async () => {
       try {
         const all: ServerJob[] = await fetch('/api/translate/jobs').then(r=>r.json());
+        if (!Array.isArray(all)) return;   // 401/500 returns {error} — don't crash the poll
         const map: Record<string,ServerJob> = {};
         for (const j of all) map[j.job_id] = j;
 
@@ -101,14 +102,20 @@ export default function JobsMonitor() {
 
         for (const localJob of active) {
           const srv = map[localJob.job_id];
-          if (srv && srv.status !== 'running' && srv.status !== 'paused') {
-            if (srv.status === 'error' && srv.error && !shownErrors.current.has(localJob.job_id)) {
-              shownErrors.current.add(localJob.job_id);
-              const pageTitle = srv.page_title || ('Page ' + localJob.page_id);
-              setErrorPopup({ title: pageTitle, msg: srv.error });
-            } else if (srv.status !== 'error') {
-              setTimeout(() => dismissById(localJob.job_id), 5000);
-            }
+          if (!srv) {
+            // No longer tracked by the server (completed & pruned, or lost on
+            // restart). Stop polling it forever — dismiss shortly.
+            setTimeout(() => dismissById(localJob.job_id), 3000);
+            continue;
+          }
+          if (srv.status === 'running' || srv.status === 'paused') continue;
+          if ((srv.status === 'error' || srv.status === 'interrupted') && !shownErrors.current.has(localJob.job_id)) {
+            shownErrors.current.add(localJob.job_id);
+            const pageTitle = srv.page_title || ('Page ' + localJob.page_id);
+            setErrorPopup({ title: pageTitle, msg: srv.error || (srv.status === 'interrupted'
+              ? 'Job was interrupted by a server restart — please re-run it.' : 'Job failed.') });
+          } else if (srv.status !== 'error' && srv.status !== 'interrupted') {
+            setTimeout(() => dismissById(localJob.job_id), 5000);
           }
         }
       } catch {}

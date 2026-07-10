@@ -46,6 +46,8 @@ const STATUS_CFG: Record<string, { bg: string; color: string; border: string; la
   done:    { bg: 'rgba(16,185,129,0.08)',   color: '#059669', border: 'rgba(16,185,129,0.25)', label: 'Done',    dot: '#10b981' },
   error:   { bg: 'rgba(239,68,68,0.08)',    color: '#dc2626', border: 'rgba(239,68,68,0.25)',  label: 'Error',   dot: '#ef4444' },
   stopped: { bg: 'rgba(100,116,139,0.08)',  color: '#64748b', border: 'rgba(100,116,139,0.25)',label: 'Stopped', dot: '#94a3b8' },
+  interrupted: { bg: 'rgba(234,88,12,0.08)', color: '#c2410c', border: 'rgba(234,88,12,0.25)', label: 'Interrupted', dot: '#ea580c' },
+  not_found:   { bg: 'rgba(100,116,139,0.08)', color: '#64748b', border: 'rgba(100,116,139,0.25)', label: 'Not found', dot: '#94a3b8' },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -248,7 +250,7 @@ export default function ProgressPage() {
           </svg>
           <div style={{ fontSize: 15, fontWeight: '600', color: D.text2, marginBottom: 6 }}>No Jobs</div>
           <div style={{ fontSize: 13, color: D.text3 }}>Start a translation from the Pages section to see jobs here.</div>
-          <div style={{ fontSize: 12, color: D.text3, marginTop: 8 }}>Jobs are stored in memory — they reset when the server restarts.</div>
+          <div style={{ fontSize: 12, color: D.text3, marginTop: 8 }}>Jobs persist across restarts; a job running during a restart is marked “Interrupted” — just re-run it.</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

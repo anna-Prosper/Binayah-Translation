@@ -75,15 +75,19 @@ export default function TranslatePage() {
         const data: JobState = await fetch(`/api/translate/progress/${jobId}`).then(r => r.json());
         if (cancelled) return;
         setJobState(data);
-        if (data.status === 'running') {
+        if (data.status === 'running' || data.status === 'paused') {
           pollRef.current = setTimeout(poll, 1500);
         } else if (data.status === 'done') {
           setJobId(null);
           setMsg({ text: `Done! ${data.results?.reduce((s, r) => s + r.translated, 0) || 0} fields translated.`, ok: true });
           reloadTranslations();
-        } else if (data.status === 'error') {
+        } else if (data.status === 'interrupted') {
           setJobId(null);
-          setMsg({ text: data.error || 'Translation failed', ok: false });
+          setMsg({ text: 'Job was interrupted by a server restart — please re-run it.', ok: false });
+        } else {
+          // error / not_found / stopped / unknown — stop polling with a message
+          setJobId(null);
+          setMsg({ text: data.error || (data.status === 'not_found' ? 'Job is no longer available — re-run it.' : 'Translation ' + (data.status || 'failed')), ok: false });
         }
       } catch { if (!cancelled) pollRef.current = setTimeout(poll, 3000); }
     };

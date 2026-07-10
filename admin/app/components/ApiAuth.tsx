@@ -15,9 +15,10 @@ export default function ApiAuth() {
     w.__btFetchPatched = true;
 
     const orig = window.fetch.bind(window);
-    window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      let url = '';
       try {
-        const url =
+        url =
           typeof input === 'string' ? input :
           input instanceof URL ? input.pathname :
           (input as Request).url || '';
@@ -36,7 +37,23 @@ export default function ApiAuth() {
           }
         }
       } catch { /* fall through to normal fetch */ }
-      return orig(input as RequestInfo, init);
+
+      const res = await orig(input as RequestInfo, init);
+      // Global session-expiry handling: if an authenticated /api call comes back
+      // 401 (token expired/invalid), clear the session and send the user to login
+      // once — rather than every page silently showing empty/stale data. Skip the
+      // login call itself and the login page to avoid a redirect loop.
+      try {
+        const isApi = url.startsWith('/api/') || url.includes('/api/');
+        if (res.status === 401 && isApi && !url.includes('/auth/login')
+            && localStorage.getItem('bt_token')
+            && !location.pathname.startsWith('/login')) {
+          localStorage.removeItem('bt_token');
+          document.cookie = 'bt_token=; Path=/; Max-Age=0; SameSite=Lax';
+          location.href = '/login';
+        }
+      } catch { /* ignore */ }
+      return res;
     };
   }, []);
 

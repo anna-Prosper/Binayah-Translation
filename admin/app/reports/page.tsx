@@ -103,9 +103,18 @@ export default function ReportsPage() {
         ...(filterType ? { post_type: filterType } : {}),
         ...(effectiveUid ? { user_id: effectiveUid } : {}),
       });
-      const url = `/api/translation-log/download?${params}`;
+      // Fetch with the auth token (the endpoint now requires a JWT); a plain
+      // anchor navigation would send no header and 401. Download from a blob.
+      const token = (typeof window !== 'undefined' && localStorage.getItem('bt_token')) || '';
+      const res = await fetch(`/api/translation-log/download?${params}`, {
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'translation-log.csv'; a.click();
+      a.href = href; a.download = 'translation-log.csv'; a.click();
+      URL.revokeObjectURL(href);
     } catch { setAlert({ text: 'Download failed', ok: false }); }
   }
 
