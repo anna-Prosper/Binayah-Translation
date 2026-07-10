@@ -25,6 +25,17 @@ services:
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
+      # Rate limiting (optional — code defaults to 300 req/min for anonymous
+      # callers; first-party traffic is exempt). RATE_LIMIT_ALLOWLIST is a
+      # comma-separated list of always-exempt IPs (e.g. the WP server).
+      - key: RATE_LIMIT_ALLOWLIST
+        sync: false
+      # Backups: rotating zip snapshots of /data into /data/backups. Defaults:
+      # every 6h, keep 48. Set BACKUP_INTERVAL_HOURS=0 to disable the schedule.
+      - key: BACKUP_INTERVAL_HOURS
+        value: 6
+      - key: BACKUP_KEEP
+        value: 48
       # WordPress site is registered via /sites/register endpoint after deploy
       # WP_URL and WP_API_KEY are stored in /data/env-config.json (persistent disk)
 
@@ -35,6 +46,7 @@ services:
     rootDir: admin
     buildCommand: npm install && npm run build
     startCommand: npm start
+    healthCheckPath: /login
     envVars:
       - key: PORT
         value: 10000

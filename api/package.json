@@ -14,6 +14,7 @@
   "description": "",
   "dependencies": {
     "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^11.1.0",
     "adm-zip": "^0.5.17",
     "axios": "^1.16.0",
     "bcryptjs": "^3.0.3",

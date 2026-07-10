@@ -8,9 +8,12 @@ const sign = (u) => jwt.sign(
   jwtSecret(), { expiresIn: '7d' }
 );
 
+const { loginOptions } = require('../lib/rate-limit');
+
 module.exports = async function(fastify) {
 
-  fastify.post('/auth/login', async (req, reply) => {
+  // Strict, IP-independent cap on login attempts (brute-force protection).
+  fastify.post('/auth/login', { config: { rateLimit: loginOptions } }, async (req, reply) => {
     const { username, password } = req.body || {};
     if (!password) return reply.status(400).send({ error: 'Password required' });
 

@@ -33,7 +33,26 @@ Always bump the version in `wordpress-plugin/binayah-translate.php` — the fron
 - Bulk: `ADMIN_SECRET=… node api/scripts/translate-all-pages.js --site=temp [--lang=ru] [--limit=N] [--max-tokens=N]`. Resumable via `bt-checkpoint-<site>.json`; safe to re-run. **Smoke-test with `--limit=20` first.**
 
 ## ⚠️ Operational gaps (todo)
-- **No `/data` backup** — single point of failure (all state + WP creds). Add a Render disk snapshot or an export cron.
 - **No API CI** (tests/lint). `npm test` is a stub.
-- **No admin healthcheck** in `render.yaml`.
-- **Rate limiting** deferred — the WP server calls `/languages/geoip` per-visitor from one IP, so a naive per-IP limit would throttle the frontend; needs an allowlist.
+
+## Backups
+Rotating zip snapshots of the whole `/data` disk run in-process (`api/lib/backup.js`): one shortly after boot, then every `BACKUP_INTERVAL_HOURS` (default 6), keeping the newest `BACKUP_KEEP` (default 48) under `/data/backups/`. This protects against corruption / bad writes / accidental wipes, but the snapshots live on the **same disk** — to also survive disk loss, pull them offsite.
+
+Superadmin-only endpoints (JWT):
+- `GET /backup/list` — list snapshots.
+- `POST /backup/now` — snapshot immediately.
+- `GET /backup/export` — snapshot now and stream the zip (use this for offsite pull).
+- `GET /backup/download/:name` — stream an existing snapshot.
+
+**Offsite cron (recommended):** from any always-on box, `curl -H "Authorization: Bearer <admin-jwt>" https://<api>/backup/export -o backup-$(date +%F).zip` on a daily schedule, shipped to S3/R2/Backblaze. Restore = unzip into `/data` and restart the service. Disable the in-process schedule with `BACKUP_INTERVAL_HOURS=0`.
+
+## Rate limiting
+`@fastify/rate-limit`, configured in `api/lib/rate-limit.js`. The design avoids throttling first-party traffic, which all arrives from a few fixed IPs (the WP server hits `/languages/*` per-visitor; the admin UI proxies every call through one Next.js server):
+- **Exempt (never limited):** public plugin/probe paths (`/languages/*`, `/health`, `/`), any request with a valid admin JWT, and IPs in `RATE_LIMIT_ALLOWLIST`.
+- **Limited:** anonymous, non-plugin callers at `RATE_LIMIT_MAX` req/min (default 300).
+- **`/auth/login`:** strict `RATE_LIMIT_LOGIN_MAX` (default 15) per minute, keyed to a single global bucket so brute force can't be dodged by rotating source IPs (login is proxied through the admin server anyway).
+
+Requires `trustProxy: true` (set in `index.js`) so `req.ip` is the real client IP behind Render's proxy. `RATE_LIMIT_ALLOWLIST` (comma-separated IPs) is optional belt-and-suspenders for the WP server.
+
+## Deployed-version marker
+`GET /` and `GET /health` return `commit` (= `RENDER_GIT_COMMIT`). A failed Render deploy leaves the previous commit serving, so compare this against `git rev-parse HEAD` to confirm what's actually live.

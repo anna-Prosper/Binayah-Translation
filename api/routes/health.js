@@ -38,6 +38,6 @@ module.exports = async function (fastify) {
       }
     } catch { openrouter = false; }
 
-    return { status: 'ok', wordpress, deepseek, openrouter };
+    return { status: 'ok', commit: process.env.RENDER_GIT_COMMIT || 'dev', wordpress, deepseek, openrouter };
   });
 };
