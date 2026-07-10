@@ -197,6 +197,13 @@ class BT_Frontend {
             return;
         }
 
+        // Translating a large page (building the replacement map + a full-document
+        // str-replace on top of an already memory-heavy Elementor/Houzez render) can
+        // exceed the PHP memory limit and blank the page. Give it headroom.
+        if ( function_exists( 'wp_raise_memory_limit' ) ) wp_raise_memory_limit( 'bt_translate' );
+        $cur = (int) @ini_get( 'memory_limit' );
+        if ( $cur > 0 && $cur < 512 ) @ini_set( 'memory_limit', '512M' );
+
         $lang    = BT_Languages::$current;
         // Only treat the queried id as a post id on singular views. On archive /
         // taxonomy / author / search pages get_queried_object_id() is a term/user id
@@ -219,10 +226,9 @@ class BT_Frontend {
         }
 
         ob_start( function( $original ) use ( $post_id, $lang ) {
-            // Never emit an empty page. Each transform can fail on very large pages
-            // (e.g. preg_* returning null past a PCRE limit) — if any step returns
-            // an empty/null result while we had input, fall back to the last good
-            // HTML so the visitor always gets the page (untranslated at worst).
+            // Never emit an empty page. If any transform yields empty/null (or throws)
+            // on a difficult page, fall back to the last good HTML so the visitor
+            // always gets the page (untranslated at worst) rather than a blank.
             try {
                 $html = $original;
                 $step = function( $out ) use ( &$html ) { if ( is_string( $out ) && $out !== '' ) $html = $out; };

@@ -548,19 +548,19 @@ class BT_Extractor {
      * descriptions (which live in post_content). Each node keeps its inline HTML
      * so the frontend str-replaces it inside the rendered page unchanged.
      */
-    private static $in_the_content = false;
     private static function extract_post_content( $post ) {
         $fields = array();
         $raw = isset( $post->post_content ) ? (string) $post->post_content : '';
         if ( trim( $raw ) === '' ) return $fields;
 
-        // Re-entrancy guard: this runs inside the page's output buffer, and
-        // apply_filters('the_content') can itself trigger extraction again on some
-        // themes/builders — never recurse (it would blank the page / OOM).
-        if ( self::$in_the_content ) return $fields;
-        self::$in_the_content = true;
-        $html = apply_filters( 'the_content', $raw );  // render as the theme does, to match the page
-        self::$in_the_content = false;
+        // Mirror WordPress's core the_content TEXT transforms WITHOUT executing
+        // shortcodes/page-builders. Running apply_filters('the_content') here is
+        // dangerous: this runs inside the page's own output buffer, so on a WP
+        // Bakery / shortcode-heavy page it re-renders the builder → memory blow-up /
+        // blank page. strip_shortcodes drops the [vc_*] wrappers but keeps their
+        // inner text (which still appears verbatim in the rendered page, so the
+        // frontend str-replace still matches).
+        $html = wptexturize( wpautop( strip_shortcodes( $raw ) ) );
         if ( ! is_string( $html ) || $html === '' ) return $fields;
 
         // Inner content of the common block-level text containers.
