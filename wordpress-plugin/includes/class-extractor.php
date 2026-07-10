@@ -44,6 +44,15 @@ class BT_Extractor {
         $houzez_fields = self::extract_houzez_meta( $post );
         $fields = array_merge( $fields, $houzez_fields );
 
+        // 6b. Extract the main post_content body (classic-editor blog posts, Houzez
+        // property descriptions, plain pages). Elementor pages store their content in
+        // _elementor_data (handled above) and leave post_content as junk/placeholder,
+        // so skip those. Keys are content-hashed (stable, not positional like html:N).
+        if ( get_post_meta( $post->ID, '_elementor_edit_mode', true ) !== 'builder' ) {
+            $content_fields = self::extract_post_content( $post );
+            $fields = array_merge( $fields, $content_fields );
+        }
+
         // 7. Extract Yoast SEO fields if Yoast is active
         $seo_title = get_post_meta( $post->ID, '_yoast_wpseo_title', true );
         $seo_desc  = get_post_meta( $post->ID, '_yoast_wpseo_metadesc', true );
@@ -529,6 +538,39 @@ class BT_Extractor {
     }
 
     // ── Houzez Theme Post Meta ─────────────────────────────────────────────
+
+    /**
+     * Extract the rendered post_content body as translatable block-level nodes,
+     * keyed by a content hash (stable across renders — unlike positional html:N).
+     * Covers classic-editor blog posts, plain pages, and Houzez property
+     * descriptions (which live in post_content). Each node keeps its inline HTML
+     * so the frontend str-replaces it inside the rendered page unchanged.
+     */
+    private static function extract_post_content( $post ) {
+        $fields = array();
+        $raw = isset( $post->post_content ) ? (string) $post->post_content : '';
+        if ( trim( $raw ) === '' ) return $fields;
+
+        // Render the same way the theme does so the extracted text matches the page.
+        $html = apply_filters( 'the_content', $raw );
+        if ( ! is_string( $html ) || $html === '' ) return $fields;
+
+        // Inner content of the common block-level text containers.
+        if ( preg_match_all( '#<(p|li|h[1-6]|td|th|blockquote|figcaption|dd|dt)\b[^>]*>(.*?)</\1>#is', $html, $m ) ) {
+            $seen = array();
+            foreach ( $m[2] as $inner ) {
+                $inner = trim( preg_replace( '/[ \t\r\n]{2,}/', ' ', $inner ) );
+                if ( $inner === '' || isset( $seen[ $inner ] ) ) continue;
+                $clean = trim( wp_strip_all_tags( $inner ) );
+                if ( ! self::looks_like_real_text( $clean ) ) continue;
+                $seen[ $inner ] = true;
+                // Keep inline tags → 'html'; plain text → 'text'.
+                $type = ( $inner !== $clean && preg_match( '/<(a|strong|em|b|i|u|span|br)\b/i', $inner ) ) ? 'html' : 'text';
+                $fields[ 'content:' . md5( $inner ) ] = array( 'value' => ( $type === 'html' ? $inner : $clean ), 'type' => $type );
+            }
+        }
+        return $fields;
+    }
 
     private static function extract_houzez_meta( $post ) {
         $fields = array();
