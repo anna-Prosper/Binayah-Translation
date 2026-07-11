@@ -16,7 +16,9 @@ class BT_Languages {
     // ── Load from /api/languages/config (transient-cached 6h) ───────────────
 
     public static function load() {
-        $cached = get_transient( 'bt_languages' );
+        // Keyed by BT_VERSION so a plugin deploy busts a stale language list
+        // (an old unversioned transient once pinned 13 languages for days).
+        $cached = get_transient( 'bt_languages_' . BT_VERSION );
         if ( is_array( $cached ) && ! empty( $cached ) ) {
             self::$languages = $cached;
             return;
@@ -44,7 +46,7 @@ class BT_Languages {
                     }
                     if ( ! empty( $languages ) ) {
                         self::$languages = $languages;
-                        set_transient( 'bt_languages', $languages, 6 * HOUR_IN_SECONDS );
+                        set_transient( 'bt_languages_' . BT_VERSION, $languages, 6 * HOUR_IN_SECONDS );
                         return;
                     }
                 }
@@ -103,7 +105,9 @@ class BT_Languages {
         $permalink = get_permalink( $post->ID );
         $base_path = trim( str_replace( home_url(), '', $permalink ), '/' );
 
+        // The EN page is also the fallback for unmatched languages (x-default).
         echo '<link rel="alternate" hreflang="en" href="' . esc_url( home_url( '/' . $base_path ) ) . '" />' . "\n";
+        echo '<link rel="alternate" hreflang="x-default" href="' . esc_url( home_url( '/' . $base_path ) ) . '" />' . "\n";
         foreach ( self::$languages as $code => $info ) {
             if ( $code === 'en' ) continue;
             echo '<link rel="alternate" hreflang="' . esc_attr( $code ) . '" href="' . esc_url( home_url( '/' . $code . '/' . $base_path ) ) . '" />' . "\n";

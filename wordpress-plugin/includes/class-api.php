@@ -720,11 +720,16 @@ class BT_API {
         global $wpdb;
         $table  = BT_Database::table();
         $exists = $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ) === $table;
+        if ( empty( BT_Languages::$languages ) ) BT_Languages::load();
         return rest_ensure_response( array(
             'status'       => 'ok',
             'plugin'       => defined( 'BT_VERSION' ) ? BT_VERSION : '1.0.0',
             'table_exists' => $exists,
             'api_key_set'  => (bool) get_option( 'bt_api_key' ),
+            // Ops diagnostics: which API the site pulls language config from,
+            // and what it resolved — catches a stale bt_api_url at a glance.
+            'api_url'      => get_option( 'bt_api_url', '' ),
+            'languages'    => array_keys( BT_Languages::$languages ),
         ) );
     }
 

@@ -2,13 +2,13 @@
 /**
  * Plugin Name: Binayah Translate
  * Description: Custom AI Translation System for Binayah.com
- * Version: 1.7.29
+ * Version: 1.7.33
  * Author: Binayah Team
  */
 
 if ( ! defined( 'ABSPATH' ) ) exit;
 
-define( 'BT_VERSION',    '1.7.29' );
+define( 'BT_VERSION',    '1.7.33' );
 define( 'BT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'BT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -48,10 +48,24 @@ add_action( 'admin_init', function() {
 add_action( 'plugins_loaded', 'bt_init', 10 );
 
 function bt_init() {
+    bt_migrate_api_url();
     BT_Languages::init();
     BT_API::init();
     BT_Frontend::init();
     if ( is_admin() ) { BT_Settings::init(); }
+}
+
+/**
+ * One-time migration: the site used to point at a self-hosted API
+ * (64.226.98.189) that still serves a stale 13-language config — which made
+ * the plugin advertise hreflang for 11 untranslated languages and tied geoip
+ * language detection to an unmanaged box. Repoint to the Render API.
+ */
+function bt_migrate_api_url() {
+    $url = get_option( 'bt_api_url', '' );
+    if ( $url && strpos( $url, '64.226.98.189' ) !== false ) {
+        update_option( 'bt_api_url', 'https://binayah-translation-api.onrender.com' );
+    }
 }
 
 /**

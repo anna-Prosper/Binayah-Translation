@@ -509,8 +509,11 @@ class BT_Frontend {
 
         $home = rtrim( home_url(), '/' );
 
+        // Only rewrite hrefs inside <a> tags. A bare href= pattern also matched
+        // <link rel="alternate" hreflang="en"> in the head, prefixing the EN
+        // alternate with /ru/ and corrupting the hreflang cluster for search.
         return preg_replace_callback(
-            '/(href=["\'])(' . preg_quote( $home, '/' ) . ')(\/[^"\'#?]*)(["\'"])/i',
+            '/(<a\b[^>]*?href=["\'])(' . preg_quote( $home, '/' ) . ')(\/[^"\'#?]*)(["\'"])/i',
             function( $m ) use ( $lang, $home, $translated_paths ) {
                 $path = rtrim( $m[3], '/' );
                 if ( preg_match( '#^/[a-z]{2}($|/)#', $path ) ) return $m[0];
