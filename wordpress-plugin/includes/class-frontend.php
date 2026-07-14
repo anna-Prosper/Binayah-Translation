@@ -30,6 +30,11 @@ class BT_Frontend {
         add_shortcode( 'bt_lang_switcher', array( __CLASS__, 'language_switcher_shortcode' ) );
         add_action( 'template_redirect',  array( __CLASS__, 'maybe_geo_redirect' ), 0 );
         add_action( 'template_redirect',  array( __CLASS__, 'start_buffer' ), 1 );
+        // On language-prefixed requests WP's canonical redirect compares against
+        // the stripped REQUEST_URI and 301s some post types (e.g. Houzez
+        // residentialbuildings) back to the English URL, silently undoing the
+        // language switch. Standard multilingual practice: skip it entirely.
+        add_filter( 'redirect_canonical', array( __CLASS__, 'skip_canonical_on_lang' ) );
 
         add_filter( 'the_title',            array( __CLASS__, 'filter_title' ), 20, 2 );
         add_filter( 'the_excerpt',          array( __CLASS__, 'filter_excerpt' ), 20 );
@@ -42,6 +47,14 @@ class BT_Frontend {
         if ( function_exists( 'acf_add_filter_modifiers' ) || class_exists( 'ACF' ) ) {
             add_filter( 'acf/load_value', array( __CLASS__, 'filter_acf_value' ), 20, 3 );
         }
+    }
+
+    // Suppress WP canonical 301s while serving a translated URL — the request
+    // has already been internally rewritten, so canonical comparisons are
+    // meaningless and bounce the visitor back to English.
+    public static function skip_canonical_on_lang( $redirect_url ) {
+        if ( BT_Languages::$current !== 'en' ) return false;
+        return $redirect_url;
     }
 
     // ── Language detection ──────────────────────────────────────────────────
@@ -262,7 +275,28 @@ class BT_Frontend {
     private static function apply_text_translations( $html, $post_id, $lang ) {
         $map = self::get_replacement_map( $post_id, $lang );
         if ( empty( $map ) ) return $html;
-        return strtr( $html, $map );
+
+        // Single bare words (e.g. a property-type label "Villa") must respect
+        // word boundaries — strtr is substring-based and turned "Villas" into
+        // "Виллаs". Longer/multi-word keys are unambiguous and stay in the fast
+        // single-pass strtr; single words go through one \b-anchored regex pass.
+        $singles = array(); $multi = array();
+        foreach ( $map as $k => $v ) {
+            if ( preg_match( '/^[A-Za-z][A-Za-z0-9\'\x{2019}-]*$/u', $k ) ) $singles[ $k ] = $v;
+            else $multi[ $k ] = $v;
+        }
+        if ( ! empty( $multi ) ) $html = strtr( $html, $multi );
+        if ( ! empty( $singles ) ) {
+            // Longest first so "Villas" wins over "Villa" inside the alternation.
+            uksort( $singles, function( $a, $b ) { return strlen( $b ) - strlen( $a ); } );
+            $quoted = array_map( function( $s ) { return preg_quote( $s, '/' ); }, array_keys( $singles ) );
+            $html = preg_replace_callback(
+                '/\b(?:' . implode( '|', $quoted ) . ')\b/',
+                function( $m ) use ( $singles ) { return $singles[ $m[0] ]; },
+                $html
+            );
+        }
+        return $html;
     }
 
     /**
