@@ -76,7 +76,9 @@ module.exports = async function (fastify) {
         timeout: 15000,
       });
       const data = res.data;
-      // Inject synthetic "Global (Nav Menus)" entry on page 1 with no search filter
+      // Inject synthetic "Global (Nav Menus)" entry on page 1 with no search filter.
+      // The plugin's /pages response reports global_languages/global_status for
+      // the post_id=0 bucket (older plugins omit them → shows as not started).
       if (!req.query.search && (!req.query.page || req.query.page === '1')) {
         const globalEntry = {
           id: 0, post_id: 0, post_type: 'global',
@@ -84,7 +86,8 @@ module.exports = async function (fastify) {
           slug: 'global-nav-menus',
           url: '',
           modified: '',
-          translated_languages: [],
+          translated_languages: data.global_languages || [],
+          status: data.global_status || 'not_started',
         };
         data.data = [globalEntry, ...(data.data || [])];
         data.total = (data.total || 0) + 1;

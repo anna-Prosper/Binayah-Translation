@@ -360,6 +360,15 @@ class BT_API {
         $table = BT_Database::table();
         $data  = array();
 
+        // "Complete" means translated into every ENABLED language (the old
+        // hard-coded >=10 threshold could never be met with 2 enabled languages).
+        if ( empty( BT_Languages::$languages ) ) BT_Languages::load();
+        $enabled = array_values( array_diff( array_keys( BT_Languages::$languages ), array( 'en' ) ) );
+        $status_for = function( $langs ) use ( $enabled ) {
+            if ( empty( $langs ) ) return 'not_started';
+            return count( array_diff( $enabled, $langs ) ) === 0 ? 'complete' : 'partial';
+        };
+
         foreach ( $posts as $post ) {
             $translated_languages = $wpdb->get_col( $wpdb->prepare(
                 "SELECT DISTINCT language_code FROM {$table} WHERE post_id = %d AND status = 'done'",
@@ -374,15 +383,22 @@ class BT_API {
                 'url'                  => get_permalink( $post->ID ),
                 'modified'             => $post->post_modified,
                 'translated_languages' => $translated_languages ?: array(),
-                'status'               => count( $translated_languages ) >= 10 ? 'complete'
-                                          : ( count( $translated_languages ) > 0 ? 'partial' : 'not_started' ),
+                'status'               => $status_for( $translated_languages ),
             );
         }
+
+        // Languages the global bucket (nav/theme strings, post_id 0) is done in —
+        // used by the admin to show real status on its synthetic "Global" row.
+        $global_languages = $wpdb->get_col(
+            "SELECT DISTINCT language_code FROM {$table} WHERE post_id = 0 AND status = 'done'"
+        ) ?: array();
 
         return rest_ensure_response( array(
             'page' => $page, 'per_page' => $per_page,
             'total' => $total, 'total_pages' => $total_pages,
             'post_type' => $post_type, 'data' => $data,
+            'global_languages' => $global_languages,
+            'global_status'    => $status_for( $global_languages ),
         ) );
     }
 
