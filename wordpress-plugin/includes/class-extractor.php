@@ -3,8 +3,11 @@ if ( ! defined( 'ABSPATH' ) ) exit;
 
 class BT_Extractor {
 
-    // Main function — detects which builder was used and extracts all text
-    public static function extract( $post ) {
+    // Main function — detects which builder was used and extracts all text.
+    // $allow_render: permit a rendered-page HTTP fallback for template-based
+    // pages with no DB content. Only the REST /content endpoint passes true —
+    // frontend map building must never make HTTP self-requests mid page view.
+    public static function extract( $post, $allow_render = false ) {
         $fields = array();
 
         // 1. Always extract post title
@@ -53,6 +56,17 @@ class BT_Extractor {
         if ( ! $has_elementor ) {
             $content_fields = self::extract_post_content( $post );
             $fields = array_merge( $fields, $content_fields );
+        }
+
+        // 6c. Template-based pages (e.g. Houzez templates/pages/*.php): all body
+        // content is hardcoded in the theme PHP — post_content is empty and no
+        // builder meta exists, so at this point we only have title/excerpt. As a
+        // last resort render the page and extract its main-content text nodes.
+        if ( $allow_render ) {
+            $body_fields = array_diff_key( $fields, array( 'post_title' => 1, 'post_excerpt' => 1 ) );
+            if ( empty( $body_fields ) ) {
+                $fields = array_merge( $fields, self::extract_rendered( $post ) );
+            }
         }
 
         // 7. Extract Yoast SEO fields if Yoast is active
@@ -563,12 +577,24 @@ class BT_Extractor {
         $html = wptexturize( wpautop( strip_shortcodes( $raw ) ) );
         if ( ! is_string( $html ) || $html === '' ) return $fields;
 
-        // Inner content of the common block-level text containers.
-        if ( preg_match_all( '#<(p|li|h[1-6]|td|th|blockquote|figcaption|dd|dt)\b[^>]*>(.*?)</\1>#is', $html, $m ) ) {
+        return self::extract_block_nodes( $html );
+    }
+
+    /**
+     * Extract the inner content of common block-level text containers from an
+     * HTML fragment as content-hashed fields (stable keys, unlike positional
+     * html:N). Shared by post_content extraction and the rendered-page fallback.
+     */
+    private static function extract_block_nodes( $html ) {
+        $fields = array();
+        if ( preg_match_all( '#<(p|li|h[1-6]|td|th|blockquote|figcaption|dd|dt|button)\b[^>]*>(.*?)</\1>#is', $html, $m ) ) {
             $seen = array();
             foreach ( $m[2] as $inner ) {
                 $inner = trim( preg_replace( '/[ \t\r\n]{2,}/', ' ', $inner ) );
                 if ( $inner === '' || isset( $seen[ $inner ] ) ) continue;
+                // Skip containers that still hold nested block/structural markup —
+                // their leaf nodes are captured as their own matches.
+                if ( preg_match( '/<(div|section|ul|ol|table|p|h[1-6]|article|aside|form|nav|img|svg|iframe|script|style)\b/i', $inner ) ) continue;
                 $clean = trim( wp_strip_all_tags( $inner ) );
                 if ( ! self::looks_like_real_text( $clean ) ) continue;
                 $seen[ $inner ] = true;
@@ -578,6 +604,47 @@ class BT_Extractor {
             }
         }
         return $fields;
+    }
+
+    /**
+     * Last-resort extraction for pages whose content lives in a hardcoded PHP
+     * theme template (empty post_content, no builder meta — e.g. Houzez's
+     * templates/pages/*.php): render the page over HTTP and extract text nodes
+     * from the area between the site header and footer. The X-BT-Render header
+     * makes our own frontend skip translation/buffering on the inner request,
+     * so this cannot recurse. Only called from the REST /content endpoint
+     * (never during a visitor page view — see BT_API::get_page_content).
+     */
+    public static function extract_rendered( $post ) {
+        $url = get_permalink( $post->ID );
+        if ( ! $url ) return array();
+
+        $key  = get_option( 'bt_api_key', '' );
+        $resp = wp_remote_get( $url, array(
+            'timeout'   => 30,
+            'sslverify' => false,
+            'headers'   => array( 'X-BT-Render' => $key, 'X-Binayah-API-Key' => $key ),
+        ) );
+        if ( is_wp_error( $resp ) || 200 !== wp_remote_retrieve_response_code( $resp ) ) return array();
+        $html = (string) wp_remote_retrieve_body( $resp );
+        if ( $html === '' ) return array();
+
+        // Scope to the main content area so header/nav/footer strings stay in
+        // the global (post_id=0) bucket and are not duplicated per page.
+        if ( preg_match( '#<main\b.*</main>#is', $html, $m ) ) {
+            $html = $m[0];
+        } else {
+            $h = stripos( $html, '</header>' );
+            if ( $h !== false ) $html = substr( $html, $h + 9 );
+            $f = stripos( $html, '<footer' );
+            if ( $f !== false ) $html = substr( $html, 0, $f );
+        }
+
+        // Drop non-content containers wholesale before node extraction.
+        $html = preg_replace( '#<(script|style|noscript|svg|form|nav|template|select)\b[^>]*>.*?</\1>#is', '', $html );
+        if ( ! is_string( $html ) || $html === '' ) return array();
+
+        return self::extract_block_nodes( $html );
     }
 
     private static function extract_houzez_meta( $post ) {

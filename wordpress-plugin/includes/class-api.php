@@ -408,7 +408,10 @@ class BT_API {
         $post_id = (int) $request['id'];
         $post    = get_post( $post_id );
         if ( ! $post ) return new WP_Error( 'not_found', 'Post not found', array( 'status' => 404 ) );
-        $fields = BT_Extractor::extract( $post );
+        // allow_render: template-based pages (empty post_content, no builder
+        // meta) fall back to rendered-page extraction. Safe here — this is a
+        // REST call, not a visitor page view.
+        $fields = BT_Extractor::extract( $post, true );
         return rest_ensure_response( array(
             'post_id'    => $post_id,
             'post_type'  => $post->post_type,
@@ -536,10 +539,13 @@ class BT_API {
             } elseif ( $field_key === 'post_title' && $post ) {
                 $original = $post->post_title;
                 $ftype    = 'text';
-            } elseif ( str_starts_with( $field_key, 'html:' ) ) {
-                // HTML-source fields: original_text is in the field key hint from translation server
-                $original = $body['originals'][ $field_key ] ?? '';
-                $ftype    = 'text';
+            } elseif ( isset( $body['originals'][ $field_key ] ) && $body['originals'][ $field_key ] !== '' ) {
+                // Field not present in a fresh extraction (e.g. rendered-template
+                // content: fields — extraction here runs without the HTTP render
+                // fallback). Trust the originals map the translation server sends:
+                // without original_text the frontend map can never match the string.
+                $original = (string) $body['originals'][ $field_key ];
+                $ftype    = preg_match( '/<[a-z][^>]*>/i', $original ) ? 'html' : 'text';
             } else {
                 $original = '';
                 $ftype    = 'text';
