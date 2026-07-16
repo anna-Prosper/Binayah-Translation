@@ -122,8 +122,19 @@ async function bootstrapViaAdminUpload(site, wpUser, wpAppPassword) {
   const wpUser   = args.find(a => a.startsWith('--wp-user='))?.split('=')[1]    || process.env.WP_ADMIN_USER;
   const wpPass   = args.find(a => a.startsWith('--wp-pass='))?.split('=')[1]    || process.env.WP_ADMIN_PASS;
 
+  // Distinguish "you asked for a site that doesn't exist / has no key" (a real
+  // error) from "no sites are configured at all" (nothing to do — e.g. a CI run
+  // on a fork or before WP_KEY_* secrets are set). The latter must exit 0 so a
+  // plugin-only push doesn't fail the deploy workflow.
+  if (siteArg && !SITES.some(s => s.name === siteArg)) {
+    console.error(`Site "${siteArg}" not deployable — is WP_KEY_${siteArg.toUpperCase()} set?`);
+    process.exit(1);
+  }
   const targets = siteArg ? SITES.filter(s => s.name === siteArg) : SITES;
-  if (!targets.length) { console.error('Unknown site:', siteArg); process.exit(1); }
+  if (!targets.length) {
+    console.warn('[deploy] no sites configured (set WP_KEY_TEMP / WP_KEY_STAGING) — nothing to deploy.');
+    return;
+  }
 
   const files = buildFileMap();
   console.log(`Plugin files ready: ${Object.keys(files).length} files`);
