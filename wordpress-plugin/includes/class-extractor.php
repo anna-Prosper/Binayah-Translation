@@ -766,19 +766,27 @@ class BT_Extractor {
                 continue;
             }
 
-            // Real inline formatting present? (ignore <br> and skip-tag icons)
-            $has_inline = false;
+            // Count discrete inline-element children (ignore <br> and skip-tag
+            // icons) and whether bare text flows between them.
+            $inline_children = 0;
+            $has_direct_text = false;
             foreach ( $child->childNodes as $g ) {
+                if ( $g->nodeType === XML_TEXT_NODE ) { if ( trim( $g->textContent ) !== '' ) $has_direct_text = true; continue; }
                 if ( $g->nodeType !== XML_ELEMENT_NODE ) continue;
                 $gt = strtolower( $g->nodeName );
                 if ( $gt === 'br' || in_array( $gt, $skip, true ) ) continue;
-                $has_inline = true; break;
+                $inline_children++;
             }
-            // Bare text directly under this element (interspersed with the inline
-            // formatting), vs. all text living inside child inline wrappers.
-            $has_direct_text = false;
-            foreach ( $child->childNodes as $g ) {
-                if ( $g->nodeType === XML_TEXT_NODE && trim( $g->textContent ) !== '' ) { $has_direct_text = true; break; }
+            $has_inline = $inline_children > 0;
+
+            // Multiple discrete inline labels with NO flowing text between them
+            // (an eyebrow <span> next to a phone <a>, two stacked <span>s) are
+            // SEPARATE units — recurse so each is captured on its own and can
+            // byte-match the element-separated rendered HTML. A single wrapper, or
+            // text flowing around inline tags, stays one unit.
+            if ( $inline_children >= 2 && ! $has_direct_text ) {
+                self::walk_leaves( $child, $fields, $seen, $skip );
+                continue;
             }
 
             if ( $has_inline ) {
