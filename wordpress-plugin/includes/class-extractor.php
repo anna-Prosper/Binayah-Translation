@@ -58,14 +58,23 @@ class BT_Extractor {
             $fields = array_merge( $fields, $content_fields );
         }
 
-        // 6c. Template-based pages (e.g. Houzez templates/pages/*.php): all body
-        // content is hardcoded in the theme PHP — post_content is empty and no
-        // builder meta exists, so at this point we only have title/excerpt. As a
-        // last resort render the page and extract its main-content text nodes.
-        if ( $allow_render ) {
-            $body_fields = array_diff_key( $fields, array( 'post_title' => 1, 'post_excerpt' => 1 ) );
-            if ( empty( $body_fields ) ) {
-                $fields = array_merge( $fields, self::extract_rendered( $post ) );
+        // 6c. Coverage-guarded rendered fallback. The structured extractors above
+        // only see content stored in post_content / builder meta / ACF / Houzez
+        // meta. They miss pages whose body is hardcoded in a theme template
+        // (Houzez templates/pages/*.php) and mixed pages (a builder hero + a
+        // template body). When structured extraction is thin, render the page and
+        // MERGE its main-content text nodes, deduped against what we already have,
+        // so a new page translates regardless of how it was built. Guarded to REST
+        // /content ($allow_render) — never a visitor page view (would self-HTTP mid
+        // render). See should_render_fallback() for the type/template restrictions.
+        if ( $allow_render && self::should_render_fallback( $post, $fields ) ) {
+            $seen = self::structured_text_index( $fields );
+            foreach ( self::extract_rendered( $post ) as $key => $field ) {
+                $val  = is_array( $field ) ? ( $field['value'] ?? '' ) : $field;
+                $norm = self::normalize_for_dedupe( $val );
+                if ( $norm === '' || isset( $seen[ $norm ] ) ) continue;
+                $seen[ $norm ]  = true;
+                $fields[ $key ] = $field;
             }
         }
 
@@ -604,6 +613,48 @@ class BT_Extractor {
             }
         }
         return $fields;
+    }
+
+    /**
+     * Decide whether to run the rendered fallback for this post. Keeps it cheap
+     * and safe:
+     *  - Only 'page'/'post' types. The Houzez CPTs (property, project, area,
+     *    residentialbuilding…) — which are the vast majority of the ~21k objects —
+     *    always carry structured meta, and rendering them would pull in dynamic
+     *    listing chrome (prices, cards, agents) that churns and shouldn't be
+     *    per-page translated. So they never take this path.
+     *  - Skip templates whose body is dynamic inventory (search/archive/results).
+     *  - Fire only when structured extraction found little body content — catches
+     *    fully template-driven pages (0 fields) and mixed builder+template pages,
+     *    while a normally-built page (many fields) skips the render entirely.
+     */
+    private static function should_render_fallback( $post, $fields ) {
+        if ( ! in_array( $post->post_type, array( 'page', 'post' ), true ) ) return false;
+
+        $tpl  = (string) get_page_template_slug( $post->ID );
+        $skip = apply_filters( 'bt_no_render_templates', '/(search|archive|result|listing|grid|map)/i' );
+        if ( $tpl !== '' && @preg_match( $skip, $tpl ) ) return false;
+
+        $body = array_diff_key( $fields, array( 'post_title' => 1, 'post_excerpt' => 1 ) );
+        return count( $body ) < 10;
+    }
+
+    /** Index of normalized text already captured by structured extraction. */
+    private static function structured_text_index( $fields ) {
+        $idx = array();
+        foreach ( $fields as $f ) {
+            $v = is_array( $f ) ? ( $f['value'] ?? '' ) : $f;
+            $n = self::normalize_for_dedupe( $v );
+            if ( $n !== '' ) $idx[ $n ] = true;
+        }
+        return $idx;
+    }
+
+    /** Tag-stripped, whitespace-collapsed, lowercased form for dedupe matching. */
+    private static function normalize_for_dedupe( $text ) {
+        $t = wp_strip_all_tags( (string) $text );
+        $t = preg_replace( '/\s+/', ' ', $t );
+        return strtolower( trim( $t ) );
     }
 
     /**
