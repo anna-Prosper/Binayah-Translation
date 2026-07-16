@@ -694,9 +694,19 @@ class BT_Extractor {
             libxml_use_internal_errors( $prev );
             $body = $doc->getElementsByTagName( 'body' )->item( 0 );
             if ( ! $body ) return array();
+            // Template-fallback pages are hardcoded top-to-bottom — their custom
+            // header/nav/footer ARE page-specific content (a bespoke landing page,
+            // not the shared Houzez chrome), so capture the WHOLE body and only
+            // prune genuinely non-content subtrees. Standard pages never reach
+            // here (they have structured fields), so shared chrome isn't
+            // duplicated across the 21k catalog. nav:*-handled menu items that do
+            // appear are harmless: single words replace node-bounded, multi-word
+            // via strtr, both idempotent once the nav filter has run.
+            $skip = array( 'script','style','noscript','svg','form','select','textarea',
+                           'option','template','iframe','head','link','meta','picture','source' );
             $fields = array();
             $seen   = array();
-            self::walk_leaves( $body, $fields, $seen );
+            self::walk_leaves( $body, $fields, $seen, $skip );
             return $fields;
         }
 
@@ -731,43 +741,71 @@ class BT_Extractor {
      * HTML the frontend replaces against); leaves with inline markup store inner
      * HTML (type 'html').
      */
-    private static function walk_leaves( $node, &$fields, &$seen ) {
+    private static function walk_leaves( $node, &$fields, &$seen, $skip = null ) {
+        if ( $skip === null ) $skip = self::$skip_tags;
         foreach ( $node->childNodes as $child ) {
             if ( $child->nodeType !== XML_ELEMENT_NODE ) continue;
             $tag = strtolower( $child->nodeName );
-            if ( in_array( $tag, self::$skip_tags, true ) ) continue;
+            if ( in_array( $tag, $skip, true ) ) continue;
 
             $has_block_child = false;
             foreach ( $child->childNodes as $g ) {
                 if ( $g->nodeType !== XML_ELEMENT_NODE ) continue;
                 $gt = strtolower( $g->nodeName );
-                if ( in_array( $gt, self::$skip_tags, true ) ) continue;
+                if ( in_array( $gt, $skip, true ) ) continue;
                 if ( ! in_array( $gt, self::$inline_tags, true ) ) { $has_block_child = true; break; }
             }
 
             if ( $has_block_child ) {
-                self::walk_leaves( $child, $fields, $seen );
+                self::walk_leaves( $child, $fields, $seen, $skip );
                 continue;
             }
 
+            // Real inline formatting present? (ignore <br> and skip-tag icons)
             $has_inline = false;
             foreach ( $child->childNodes as $g ) {
-                if ( $g->nodeType === XML_ELEMENT_NODE && strtolower( $g->nodeName ) !== 'br' ) { $has_inline = true; break; }
+                if ( $g->nodeType !== XML_ELEMENT_NODE ) continue;
+                $gt = strtolower( $g->nodeName );
+                if ( $gt === 'br' || in_array( $gt, $skip, true ) ) continue;
+                $has_inline = true; break;
+            }
+            // Bare text directly under this element (interspersed with the inline
+            // formatting), vs. all text living inside child inline wrappers.
+            $has_direct_text = false;
+            foreach ( $child->childNodes as $g ) {
+                if ( $g->nodeType === XML_TEXT_NODE && trim( $g->textContent ) !== '' ) { $has_direct_text = true; break; }
             }
 
             if ( $has_inline ) {
+                // Serialize inline children, DROPPING skip-tag siblings (icons:
+                // <svg>, etc.). Including them poisons the stored original —
+                // DOMDocument lowercases SVG's camelCase attrs (viewBox→viewbox),
+                // so it could never byte-match the rendered HTML.
                 $inner = '';
-                foreach ( $child->childNodes as $g ) $inner .= $child->ownerDocument->saveHTML( $g );
+                foreach ( $child->childNodes as $g ) {
+                    if ( $g->nodeType === XML_ELEMENT_NODE && in_array( strtolower( $g->nodeName ), $skip, true ) ) continue;
+                    $inner .= $child->ownerDocument->saveHTML( $g );
+                }
             } else {
                 $inner = $child->textContent;
             }
             $inner = trim( preg_replace( '/[ \t\r\n]+/', ' ', (string) $inner ) );
-            if ( $inner === '' || strlen( $inner ) > 800 || isset( $seen[ $inner ] ) ) continue;
+            if ( $inner === '' || strlen( $inner ) > 800 ) continue;
             $clean = trim( wp_strip_all_tags( $inner ) );
             if ( ! self::looks_like_real_text( $clean ) ) continue;
-            $seen[ $inner ] = true;
-            $type = ( $has_inline && preg_match( '/<(a|strong|em|b|i|u|span|br)\b/i', $inner ) ) ? 'html' : 'text';
-            $fields[ 'content:' . md5( $inner ) ] = array( 'value' => ( $type === 'html' ? $inner : $clean ), 'type' => $type );
+
+            // Keep inline HTML ONLY when formatting is INTERSPERSED with bare text
+            // ("A legacy <span>measured</span> in trust") — there the tags sit
+            // mid-text and clean text wouldn't be a contiguous substring. When the
+            // inline tag merely WRAPS the whole text (<h4>/<span>/<a> around a
+            // label), store CLEAN TEXT: it matches the string under ANY wrapper,
+            // so responsive duplicates (<h4> desktop vs <span> mobile accordion)
+            // both translate from one field.
+            $keep_html = $has_inline && $has_direct_text;
+            $value = $keep_html ? $inner : $clean;
+            if ( isset( $seen[ $value ] ) ) continue;
+            $seen[ $value ] = true;
+            $fields[ 'content:' . md5( $value ) ] = array( 'value' => $value, 'type' => ( $keep_html ? 'html' : 'text' ) );
         }
     }
 
