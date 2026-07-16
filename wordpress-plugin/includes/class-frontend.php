@@ -276,23 +276,28 @@ class BT_Frontend {
         $map = self::get_replacement_map( $post_id, $lang );
         if ( empty( $map ) ) return $html;
 
-        // Single bare words (e.g. a property-type label "Villa") must respect
-        // word boundaries — strtr is substring-based and turned "Villas" into
-        // "Виллаs". Longer/multi-word keys are unambiguous and stay in the fast
-        // single-pass strtr; single words go through one \b-anchored regex pass.
+        // A single bare word as a map key (e.g. a search-tab label "Rent",
+        // "Buy", or property type "Villa") is DANGEROUS as a global substring
+        // replacement: strtr/\b would rewrite the word everywhere it appears,
+        // corrupting unrelated phrases ("Villas for Rent in Dubai" → "Villas for
+        // Аренда in Dubai", "Villas" → "Виллаs"). So single words are replaced
+        // ONLY when they are the ENTIRE text content of an HTML node (bounded by
+        // tag delimiters), never when embedded in a longer phrase. Multi-word
+        // keys are unambiguous and stay in the fast single-pass strtr.
         $singles = array(); $multi = array();
         foreach ( $map as $k => $v ) {
-            if ( preg_match( '/^[A-Za-z][A-Za-z0-9\'\x{2019}-]*$/u', $k ) ) $singles[ $k ] = $v;
+            if ( $k !== $v && preg_match( '/^[A-Za-z][A-Za-z0-9\'\x{2019}-]*$/u', $k ) ) $singles[ $k ] = $v;
             else $multi[ $k ] = $v;
         }
         if ( ! empty( $multi ) ) $html = strtr( $html, $multi );
         if ( ! empty( $singles ) ) {
-            // Longest first so "Villas" wins over "Villa" inside the alternation.
+            // Longest first so "Villas" wins over "Villa" in the alternation.
             uksort( $singles, function( $a, $b ) { return strlen( $b ) - strlen( $a ); } );
             $quoted = array_map( function( $s ) { return preg_quote( $s, '/' ); }, array_keys( $singles ) );
+            // (>optional-ws) WORD (optional-ws<): the word must fill the node.
             $html = preg_replace_callback(
-                '/\b(?:' . implode( '|', $quoted ) . ')\b/',
-                function( $m ) use ( $singles ) { return $singles[ $m[0] ]; },
+                '/(>\s*)(' . implode( '|', $quoted ) . ')(\s*<)/',
+                function( $m ) use ( $singles ) { return $m[1] . $singles[ $m[2] ] . $m[3]; },
                 $html
             );
         }
