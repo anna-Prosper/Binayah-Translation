@@ -680,22 +680,95 @@ class BT_Extractor {
         $html = (string) wp_remote_retrieve_body( $resp );
         if ( $html === '' ) return array();
 
-        // Scope to the main content area so header/nav/footer strings stay in
-        // the global (post_id=0) bucket and are not duplicated per page.
-        if ( preg_match( '#<main\b.*</main>#is', $html, $m ) ) {
-            $html = $m[0];
-        } else {
-            $h = stripos( $html, '</header>' );
-            if ( $h !== false ) $html = substr( $html, $h + 9 );
-            $f = stripos( $html, '<footer' );
-            if ( $f !== false ) $html = substr( $html, 0, $f );
+        // Walk the DOM and capture text from leaf elements REGARDLESS of tag —
+        // theme templates put real content in <div>/<span>/<a> just as often as
+        // <p>/<h*>, and a fixed tag list misses it. DOMDocument also lets us skip
+        // the <header>/<footer>/<nav> SUBTREES precisely (byte-offset stripping
+        // fails when a template wraps most of the page in <header>), so shared
+        // chrome stays in the global (post_id=0) bucket, not duplicated per page.
+        if ( class_exists( 'DOMDocument' ) ) {
+            $prev = libxml_use_internal_errors( true );
+            $doc  = new DOMDocument();
+            $doc->loadHTML( '<?xml encoding="utf-8"?>' . $html, LIBXML_NOWARNING | LIBXML_NOERROR );
+            libxml_clear_errors();
+            libxml_use_internal_errors( $prev );
+            $body = $doc->getElementsByTagName( 'body' )->item( 0 );
+            if ( ! $body ) return array();
+            $fields = array();
+            $seen   = array();
+            self::walk_leaves( $body, $fields, $seen );
+            return $fields;
         }
 
-        // Drop non-content containers wholesale before node extraction.
+        // Fallback (no DOM ext): crude region scope + block-node regex.
+        $h = stripos( $html, '</header>' );
+        if ( $h !== false ) $html = substr( $html, $h + 9 );
+        $f = stripos( $html, '<footer' );
+        if ( $f !== false ) $html = substr( $html, 0, $f );
         $html = preg_replace( '#<(script|style|noscript|svg|form|nav|template|select)\b[^>]*>.*?</\1>#is', '', $html );
-        if ( ! is_string( $html ) || $html === '' ) return array();
+        return is_string( $html ) && $html !== '' ? self::extract_block_nodes( $html ) : array();
+    }
 
-        return self::extract_block_nodes( $html );
+    // Inline elements that can appear inside a translation unit without splitting
+    // it. An element whose child elements are ALL inline is a leaf text unit.
+    private static $inline_tags = array(
+        'a','span','strong','em','b','i','u','s','small','sup','sub','mark','abbr',
+        'time','label','font','strike','del','ins','q','cite','bdi','bdo','wbr','br',
+        'code','kbd','var','samp','big','tt',
+    );
+    // Subtrees never extracted here: non-content, or chrome that belongs in the
+    // global bucket (header/footer/nav) rather than duplicated on every page.
+    private static $skip_tags = array(
+        'script','style','noscript','svg','form','select','textarea','option',
+        'nav','header','footer','template','iframe','head','link','meta','picture','source',
+    );
+
+    /**
+     * Recursively capture leaf text units. An element is a leaf when all of its
+     * child elements are inline (so its text is one contiguous unit); otherwise
+     * we recurse so each block child becomes its own unit. Skip-tag subtrees are
+     * pruned entirely. Plain-text leaves store clean text (byte-matches the raw
+     * HTML the frontend replaces against); leaves with inline markup store inner
+     * HTML (type 'html').
+     */
+    private static function walk_leaves( $node, &$fields, &$seen ) {
+        foreach ( $node->childNodes as $child ) {
+            if ( $child->nodeType !== XML_ELEMENT_NODE ) continue;
+            $tag = strtolower( $child->nodeName );
+            if ( in_array( $tag, self::$skip_tags, true ) ) continue;
+
+            $has_block_child = false;
+            foreach ( $child->childNodes as $g ) {
+                if ( $g->nodeType !== XML_ELEMENT_NODE ) continue;
+                $gt = strtolower( $g->nodeName );
+                if ( in_array( $gt, self::$skip_tags, true ) ) continue;
+                if ( ! in_array( $gt, self::$inline_tags, true ) ) { $has_block_child = true; break; }
+            }
+
+            if ( $has_block_child ) {
+                self::walk_leaves( $child, $fields, $seen );
+                continue;
+            }
+
+            $has_inline = false;
+            foreach ( $child->childNodes as $g ) {
+                if ( $g->nodeType === XML_ELEMENT_NODE && strtolower( $g->nodeName ) !== 'br' ) { $has_inline = true; break; }
+            }
+
+            if ( $has_inline ) {
+                $inner = '';
+                foreach ( $child->childNodes as $g ) $inner .= $child->ownerDocument->saveHTML( $g );
+            } else {
+                $inner = $child->textContent;
+            }
+            $inner = trim( preg_replace( '/[ \t\r\n]+/', ' ', (string) $inner ) );
+            if ( $inner === '' || strlen( $inner ) > 800 || isset( $seen[ $inner ] ) ) continue;
+            $clean = trim( wp_strip_all_tags( $inner ) );
+            if ( ! self::looks_like_real_text( $clean ) ) continue;
+            $seen[ $inner ] = true;
+            $type = ( $has_inline && preg_match( '/<(a|strong|em|b|i|u|span|br)\b/i', $inner ) ) ? 'html' : 'text';
+            $fields[ 'content:' . md5( $inner ) ] = array( 'value' => ( $type === 'html' ? $inner : $clean ), 'type' => $type );
+        }
     }
 
     private static function extract_houzez_meta( $post ) {
