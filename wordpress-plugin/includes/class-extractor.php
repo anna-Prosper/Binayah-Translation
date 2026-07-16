@@ -702,11 +702,16 @@ class BT_Extractor {
             // duplicated across the 21k catalog. nav:*-handled menu items that do
             // appear are harmless: single words replace node-bounded, multi-word
             // via strtr, both idempotent once the nav filter has run.
-            $skip = array( 'script','style','noscript','svg','form','select','textarea',
+            // NOTE: <form> is NOT skipped — its <label>/<button> text is
+            // user-facing UI ("Send Inquiry", "Email Address"). Only the actual
+            // input controls (select/textarea/option) are skipped.
+            $skip = array( 'script','style','noscript','svg','select','textarea',
                            'option','template','iframe','head','link','meta','picture','source' );
             $fields = array();
             $seen   = array();
             self::walk_leaves( $body, $fields, $seen, $skip );
+            self::sweep_text_nodes( $doc, $body, $fields, $seen, $skip );
+            self::sweep_attributes( $doc, $body, $fields );
             return $fields;
         }
 
@@ -806,6 +811,84 @@ class BT_Extractor {
             if ( isset( $seen[ $value ] ) ) continue;
             $seen[ $value ] = true;
             $fields[ 'content:' . md5( $value ) ] = array( 'value' => $value, 'type' => ( $keep_html ? 'html' : 'text' ) );
+        }
+    }
+
+    /** True if $el contains any descendant element that is block-level (not inline, not skip). */
+    private static function has_block_descendant( $el, $skip ) {
+        foreach ( $el->getElementsByTagName( '*' ) as $d ) {
+            $t = strtolower( $d->nodeName );
+            if ( in_array( $t, $skip, true ) || in_array( $t, self::$inline_tags, true ) ) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Safety net for 100% coverage: the block-vs-inline walk can still miss text
+     * in odd nestings (e.g. an all-inline action bar where a sibling icon-only
+     * <a> made the container look non-leaf). Sweep every visible text node and,
+     * for any not already captured, store its NEAREST inline-only ancestor's
+     * clean text — so a stray label is captured as a whole unit, and fragments of
+     * an already-captured unit dedup away (their ancestor's text is in $seen).
+     */
+    private static function sweep_text_nodes( $doc, $body, &$fields, &$seen, $skip ) {
+        $xpath = new DOMXPath( $doc );
+        $nodes = $xpath->query( './/text()[normalize-space()]', $body );
+        if ( ! $nodes ) return;
+
+        // Dedup by CLEAN text of everything already captured — a leaf stored as
+        // inline HTML ("A legacy <span>measured</span> in trust") is keyed by its
+        // markup in $seen, so without this the sweep would re-add its clean-text
+        // twin as a near-duplicate field.
+        $captured = array();
+        foreach ( $fields as $fld ) {
+            $c = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( is_array( $fld ) ? ( $fld['value'] ?? '' ) : $fld ) ) );
+            if ( $c !== '' ) $captured[ $c ] = true;
+        }
+        foreach ( $nodes as $tn ) {
+            // Reject text inside a skip subtree (script/style/svg/nav-select…).
+            $skipped = false;
+            for ( $a = $tn->parentNode; $a && $a->nodeType === XML_ELEMENT_NODE; $a = $a->parentNode ) {
+                if ( in_array( strtolower( $a->nodeName ), $skip, true ) ) { $skipped = true; break; }
+            }
+            if ( $skipped || ! $tn->parentNode ) continue;
+
+            // Climb to the largest ancestor that still has NO block-level
+            // descendant — that is the whole text unit this node belongs to.
+            $unit = $tn->parentNode;
+            while ( $unit->parentNode
+                    && $unit->parentNode->nodeType === XML_ELEMENT_NODE
+                    && strtolower( $unit->parentNode->nodeName ) !== 'body'
+                    && ! self::has_block_descendant( $unit->parentNode, $skip ) ) {
+                $unit = $unit->parentNode;
+            }
+            $clean = trim( preg_replace( '/\s+/', ' ', wp_strip_all_tags( $unit->textContent ) ) );
+            if ( $clean === '' || strlen( $clean ) > 800 || isset( $captured[ $clean ] ) ) continue;
+            if ( ! self::looks_like_real_text( $clean ) ) continue;
+            $captured[ $clean ] = true;
+            $fields[ 'content:' . md5( $clean ) ] = array( 'value' => $clean, 'type' => 'text' );
+        }
+    }
+
+    /**
+     * Capture user-facing ATTRIBUTE strings (search-box placeholder, aria-labels,
+     * submit-button value). These render verbatim in the HTML (placeholder="…"),
+     * so the frontend strtr pass replaces them in the output buffer just like
+     * text. Only genuinely user-visible attrs — not alt/title (proper-noun heavy).
+     */
+    private static function sweep_attributes( $doc, $body, &$fields ) {
+        $xpath = new DOMXPath( $doc );
+        $nodes = $xpath->query( './/*[@placeholder or @aria-label or (@type="submit" and @value)]', $body );
+        if ( ! $nodes ) return;
+        foreach ( $nodes as $el ) {
+            foreach ( array( 'placeholder', 'aria-label', 'value' ) as $attr ) {
+                if ( $attr === 'value' && strtolower( $el->getAttribute( 'type' ) ) !== 'submit' ) continue;
+                $val = trim( $el->getAttribute( $attr ) );
+                if ( $val === '' || strlen( $val ) > 400 ) continue;
+                if ( ! self::looks_like_real_text( $val ) ) continue;
+                $fields[ 'content:' . md5( $val ) ] = array( 'value' => $val, 'type' => 'text' );
+            }
         }
     }
 

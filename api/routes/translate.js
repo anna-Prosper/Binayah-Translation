@@ -261,16 +261,23 @@ async function translateBatch(texts, lang, api, model, systemPrompt) {
         // same-as-source is legitimate for proper nouns; a whole batch coming back
         // identical means the translation did not happen — leave it unmapped so the
         // caller counts it as failed instead of persisting English.
+        // Map only items that actually CHANGED from the source. An unchanged item
+        // is either a proper noun the model correctly left alone (Dubai Marina,
+        // AED prices, dev names) or a silent echo — in BOTH cases we must NOT
+        // persist it as a "translation" (leaving it unmapped renders the original,
+        // which is what a proper noun wants anyway). This per-item rule replaces an
+        // older whole-batch drop that discarded real translations whenever a batch
+        // happened to be proper-noun-heavy (common now that extraction is exhaustive).
         let same = 0;
         chunk.forEach((t, idx) => { if (String(translated[idx] ?? '').trim() === String(t).trim()) same++; });
-        if (chunk.length >= 4 && same / chunk.length >= 0.8) {
-          console.warn('[BT] Batch looks untranslated (echoed source) lang=' + lang + ' ' + same + '/' + chunk.length + ' identical — not saving as English');
-        } else {
-          chunk.forEach((t, idx) => {
-            const out = String(translated[idx] ?? '').trim();
-            if (out) map[t] = out;   // skip empty items rather than substituting the English source
-          });
+        if (chunk.length >= 8 && same === chunk.length) {
+          // EVERY item identical in a large batch → genuine model failure worth flagging.
+          console.warn('[BT] Batch fully echoed lang=' + lang + ' ' + same + '/' + chunk.length + ' — model may be broken');
         }
+        chunk.forEach((t, idx) => {
+          const out = String(translated[idx] ?? '').trim();
+          if (out && out !== String(t).trim()) map[t] = out;
+        });
       } else {
         // Fallback: translate individually
         for (const t of chunk) {
