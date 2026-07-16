@@ -273,8 +273,10 @@ class BT_Frontend {
      * re-translated).
      */
     private static function apply_text_translations( $html, $post_id, $lang ) {
-        $map = self::get_replacement_map( $post_id, $lang );
-        if ( empty( $map ) ) return $html;
+        $data = self::get_replacement_map( $post_id, $lang );
+        $map  = isset( $data['map'] ) ? $data['map'] : array();
+        $nb   = isset( $data['nb'] )  ? $data['nb']  : array();
+        if ( empty( $map ) && empty( $nb ) ) return $html;
 
         // A single bare word as a map key (e.g. a search-tab label "Rent",
         // "Buy", or property type "Villa") is DANGEROUS as a global substring
@@ -290,14 +292,18 @@ class BT_Frontend {
             else $multi[ $k ] = $v;
         }
         if ( ! empty( $multi ) ) $html = strtr( $html, $multi );
-        if ( ! empty( $singles ) ) {
-            // Longest first so "Villas" wins over "Villa" in the alternation.
-            uksort( $singles, function( $a, $b ) { return strlen( $b ) - strlen( $a ); } );
-            $quoted = array_map( function( $s ) { return preg_quote( $s, '/' ); }, array_keys( $singles ) );
-            // (>optional-ws) WORD (optional-ws<): the word must fill the node.
+
+        // Node-bounded replacements: single bare words (from $map) + option text
+        // ($nb, which can be multi-word). Applied only when the key fills a whole
+        // node (>text<), so nothing embedded in a phrase or in a value="" attr is
+        // touched. Longest-first so a longer key wins inside the alternation.
+        $nodebound = $singles + $nb;
+        if ( ! empty( $nodebound ) ) {
+            uksort( $nodebound, function( $a, $b ) { return strlen( $b ) - strlen( $a ); } );
+            $quoted = array_map( function( $s ) { return preg_quote( $s, '/' ); }, array_keys( $nodebound ) );
             $html = preg_replace_callback(
                 '/(>\s*)(' . implode( '|', $quoted ) . ')(\s*<)/',
-                function( $m ) use ( $singles ) { return $m[1] . $singles[ $m[2] ] . $m[3]; },
+                function( $m ) use ( $nodebound ) { return $m[1] . $nodebound[ $m[2] ] . $m[3]; },
                 $html
             );
         }
@@ -339,7 +345,7 @@ class BT_Frontend {
             $post_id, $lang
         ), ARRAY_A );
 
-        if ( empty( $rows ) ) return array();
+        if ( empty( $rows ) ) return array( 'map' => array(), 'nb' => array() );
 
         // Live extracted values for this post (ensures we match against current HTML content).
         if ( $post_id === 0 ) {
@@ -382,11 +388,19 @@ class BT_Frontend {
         }
 
         // ── Primary pairs (English original → current lang) ─────────────────
-        $pairs_p1 = array(); $pairs_p2 = array();
+        $pairs_p1 = array(); $pairs_p2 = array(); $nb_pairs = array();
         foreach ( $rows as $row ) {
             $field_key  = $row['field_key'];
             $translated = $row['translated_text'];
             if ( empty( $translated ) ) continue;
+
+            // <select><option> text (opt:*) must be replaced NODE-BOUNDED so it
+            // doesn't also rewrite the option's value="" (form-submit value).
+            if ( strpos( $field_key, 'opt:' ) === 0 ) {
+                $o = $row['original_text'];
+                if ( ! empty( $o ) && $o !== $translated ) $nb_pairs[] = array( $o, $translated );
+                continue;
+            }
 
             // H1: nav menu items (post_id=0, key nav:*:title) are translated directly
             // via the nav_menu_item_title filter (scoped to actual menu items). Applying
@@ -436,7 +450,22 @@ class BT_Frontend {
             $enc = htmlspecialchars( $term, ENT_QUOTES | ENT_HTML5, 'UTF-8', false );
             if ( $enc !== $term ) $map[ $enc ] = $enc;
         }
-        return $map;
+
+        // Node-bounded map (option text): every rendered variant → translation.
+        $nb   = array();
+        $nseen = array();
+        foreach ( $nb_pairs as $pair ) {
+            list( $orig, $trans ) = $pair;
+            if ( $orig === '' || $orig === $trans ) continue;
+            $k = md5( $orig );
+            if ( isset( $nseen[ $k ] ) ) continue;
+            $nseen[ $k ] = true;
+            foreach ( self::orig_variants( $orig ) as $variant ) {
+                if ( $variant !== '' && ! isset( $nb[ $variant ] ) ) $nb[ $variant ] = $trans;
+            }
+        }
+
+        return array( 'map' => $map, 'nb' => $nb );
     }
 
     // Do-not-translate list (brand / proper nouns), editable via the

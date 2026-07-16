@@ -712,6 +712,7 @@ class BT_Extractor {
             self::walk_leaves( $body, $fields, $seen, $skip );
             self::sweep_text_nodes( $doc, $body, $fields, $seen, $skip );
             self::sweep_attributes( $doc, $body, $fields );
+            self::sweep_options( $doc, $body, $fields );
             return $fields;
         }
 
@@ -897,6 +898,24 @@ class BT_Extractor {
                 if ( ! self::looks_like_real_text( $val ) ) continue;
                 $fields[ 'content:' . md5( $val ) ] = array( 'value' => $val, 'type' => 'text' );
             }
+        }
+    }
+
+    /**
+     * Capture <select><option> DISPLAY text (property-type / inquiry filters).
+     * Keyed opt:<md5> so the frontend replaces it NODE-BOUNDED (>text<) only —
+     * an option's text usually equals its value="" (what the form submits), and
+     * a plain strtr would rewrite the value too and break the search backend.
+     */
+    private static function sweep_options( $doc, $body, &$fields ) {
+        $xpath = new DOMXPath( $doc );
+        $nodes = $xpath->query( './/option', $body );
+        if ( ! $nodes ) return;
+        foreach ( $nodes as $opt ) {
+            $txt = trim( preg_replace( '/\s+/', ' ', $opt->textContent ) );
+            if ( $txt === '' || strlen( $txt ) > 200 ) continue;
+            if ( ! self::looks_like_real_text( $txt ) ) continue;
+            $fields[ 'opt:' . md5( $txt ) ] = array( 'value' => $txt, 'type' => 'text' );
         }
     }
 
